@@ -1,0 +1,35 @@
+apiVersion: 1
+
+# Secrets come from the environment (see .env), never from this file.
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: hm-discord
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: ${DISCORD_WEBHOOK_URL}
+
+  # Critical goes everywhere. If it is worth waking you, it is worth three
+  # channels - any one of them can be the one that is broken.
+  - orgId: 1
+    name: critical-all
+    receivers:
+      - uid: hm-crit-ntfy
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: ${NTFY_URL}
+          httpMethod: POST
+      - uid: hm-crit-telegram
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: ${TELEGRAM_BOT_TOKEN}
+          chatid: ${TELEGRAM_CHAT_ID}
+      - uid: hm-crit-discord
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: ${DISCORD_WEBHOOK_URL}

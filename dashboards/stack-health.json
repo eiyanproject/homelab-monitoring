@@ -1,0 +1,257 @@
+{
+  "uid": "hm-stack-health",
+  "title": "Stack Health",
+  "description": "Is the monitoring system itself working, and is replication to the peer node keeping up? Every query here uses a metric the stack emits about itself, so this dashboard works from first boot with no exporters installed.",
+  "tags": ["homelab", "meta"],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Components up",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        { "refId": "A", "expr": "count(up{component=\"monitoring\"} == 1)", "instant": true }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 3 },
+              { "color": "green", "value": 4 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Replication backlog",
+      "description": "Bytes queued on disk for a destination that is not accepting writes. Non-zero and rising means the peer node is unreachable - the data is safe and replays automatically when it returns.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        { "refId": "A", "expr": "sum(vmagent_remotewrite_pending_data_bytes)", "instant": true }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1048576 },
+              { "color": "red", "value": 536870912 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Ingestion rate",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(vm_rows_inserted_total[5m]))", "instant": true }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rowsps",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Free disk",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        { "refId": "A", "expr": "min(vm_free_disk_space_bytes)", "instant": true }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 5368709120 },
+              { "color": "green", "value": 21474836480 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Replication queue by destination",
+      "description": "vmagent masks remote-write URLs by index. Normally destination 1 is local and 2 is the peer. A flat line at zero on both is a healthy mirror.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(vmagent_remotewrite_pending_data_bytes) by (url, node)",
+          "legendFormat": "{{node}} -> {{url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Component availability",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{component=\"monitoring\"}",
+          "legendFormat": "{{node}} {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Bytes written to remote storage",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(vmagent_remotewrite_bytes_sent_total[5m])) by (url, node)",
+          "legendFormat": "{{node}} -> {{url}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Storage on disk",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(vm_data_size_bytes) by (node)",
+          "legendFormat": "{{node}} total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,230 @@
+apiVersion: 1
+
+# Every rule carries a `runbook` annotation. If you cannot write one, the thing
+# is a dashboard panel, not an alert.
+#
+# Rules 4-6 depend on node_exporter and stay silent until you have rolled it
+# out. That is intentional - they cost nothing while the metric is absent.
+# PVE guest-state rules are NOT here: add them from docs/PVE-ALERTS.md once you
+# have confirmed what metric names your OTLP push actually emits.
+
+groups:
+  - orgId: 1
+    name: stack
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-stack-down
+        title: Monitoring component down
+        condition: B
+        for: 3m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} has stopped responding"
+          runbook: "On the mon LXC: docker compose ps, then docker compose logs --tail=100 <service>"
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'up{component="monitoring"} == 0'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-replication-backlog
+        title: Replication backlog to peer node
+        condition: B
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "vmagent on {{ $labels.node }} is queueing data for its peer"
+          runbook: "The other node is down or unreachable. Data is safe on disk and replays automatically. If BUFFER_MAX is reached, the oldest queued data is dropped - fix the peer before that."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1800, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'sum(vmagent_remotewrite_pending_data_bytes) by (node)'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 1800, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [536870912], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-ingestion-stalled
+        title: Metric ingestion stalled
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: "No metrics have been written on {{ $labels.node }} for 10 minutes"
+          runbook: "Check vmagent logs first - a scrape config error stops everything silently. Then confirm VictoriaMetrics is accepting writes on :8428."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'sum(rate(vm_rows_inserted_total[5m]))'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+  - orgId: 1
+    name: guests
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-fs-filling
+        title: Filesystem will be full within 4 days
+        condition: B
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} {{ $labels.mountpoint }} is filling up"
+          runbook: "Projected from the last 6h of usage. Usually logs or an unrotated download dir. Check with: du -xh --max-depth=2 <mountpoint> | sort -h | tail -20"
+        data:
+          - refId: A
+            relativeTimeRange: {from: 21600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}[6h], 4*24*3600) < 0'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 21600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [-1e12], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-fs-critical
+        title: Filesystem under 10 percent free
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} {{ $labels.mountpoint }} is nearly full"
+          runbook: "Databases corrupt at 0 percent, not at 90. Free space now, then find out what grew."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: '(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes) * 100'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [10], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-sustained-swap
+        title: Sustained swapping
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} has been swapping for 15 minutes"
+          runbook: "The guest needs more RAM, or the node is overcommitted. Node 1 runs ~2.6x overcommitted by design - confirm this is the guest and not just the host reclaiming."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'rate(node_vmstat_pswpin[5m]) + rate(node_vmstat_pswpout[5m])'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [10], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query

@@ -1,0 +1,130 @@
+name: homelab-monitoring
+
+# One identical stack per Proxmox node. The only per-node differences live in
+# .env: NODE_NAME, PEER_IP and ALERTING_DIR. See .env.example.
+
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.151.0
+    container_name: hm-victoriametrics
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/storage
+      - -retentionPeriod=${METRICS_RETENTION:-90d}
+      - -httpListenAddr=:8428
+      - -selfScrapeInterval=30s
+      # Accept slightly out-of-order samples: the peer's buffered backlog
+      # replays with older timestamps after an outage.
+      - -search.maxStalenessInterval=5m
+    volumes:
+      - vm-data:/storage
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:8428:8428"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8428/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.52.0
+    container_name: hm-victorialogs
+    restart: unless-stopped
+    command:
+      - -storageDataPath=/vlogs
+      - -retentionPeriod=${LOGS_RETENTION:-30d}
+      - -httpListenAddr=:9428
+      # Guests forward here with rsyslog. RFC5424 over TCP.
+      - -syslog.listenAddr.tcp=:29514
+    volumes:
+      - vl-data:/vlogs
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:9428:9428"
+      - "${BIND_ADDR:-0.0.0.0}:29514:29514"
+    # No healthcheck: this image is distroless (no shell, no wget, no nc), so
+    # there is nothing to run inside it. vmagent scrapes :9428 instead, which
+    # is a better signal anyway - the "Monitoring component down" alert fires
+    # off up{} rather than off Docker's opinion of the container.
+    logging: *default-logging
+
+  vmagent:
+    image: victoriametrics/vmagent:v1.151.0
+    container_name: hm-vmagent
+    restart: unless-stopped
+    depends_on:
+      - victoriametrics
+    command:
+      - -promscrape.config=/etc/vmagent/scrape.yml
+      - -promscrape.fileSDCheckInterval=60s
+      - -httpListenAddr=:8429
+      # --- the dual write. Repeated -remoteWrite.url means REPLICATION,
+      # --- so every sample lands in both nodes' stores.
+      - -remoteWrite.url=http://victoriametrics:8428/api/v1/write
+      - -remoteWrite.url=http://${PEER_IP}:8428/api/v1/write
+      # --- and this is what makes a peer outage lossless.
+      - -remoteWrite.tmpDataPath=/vmagent-buffer
+      - -remoteWrite.maxDiskUsagePerURL=${BUFFER_MAX:-2GB}
+      - -remoteWrite.label=node=${NODE_NAME}
+      # Proxmox pushes OTLP to :8429/opentelemetry/v1/metrics
+      - -opentelemetry.usePrometheusNaming
+    volumes:
+      - ./config/vmagent/scrape.yml:/etc/vmagent/scrape.yml:ro
+      - ./targets:/etc/vmagent/targets:ro
+      - vmagent-buffer:/vmagent-buffer
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:8429:8429"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8429/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:13.2.1
+    container_name: hm-grafana
+    restart: unless-stopped
+    depends_on:
+      - victoriametrics
+      - victorialogs
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_INSTALL_PLUGINS: victoriametrics-logs-datasource
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      # Consumed by the provisioned contact points.
+      NTFY_URL: ${NTFY_URL:-}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      # Primary node mounts the real alerting dir; standby mounts the empty one.
+      - ${ALERTING_DIR:-./config/grafana/provisioning/alerting}:/etc/grafana/provisioning/alerting:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging: *default-logging
+
+volumes:
+  vm-data:
+  vl-data:
+  vmagent-buffer:
+  grafana-data:

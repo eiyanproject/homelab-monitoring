@@ -1,0 +1,10 @@
+# Host-specific values and secrets. Never commit.
+.env
+
+# Generated on the Proxmox host by scripts/gen-targets.sh
+targets/guests.json
+targets/services.json
+
+# Local scratch
+*.log
+.DS_Store
