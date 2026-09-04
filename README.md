@@ -22,6 +22,11 @@ without being told. Most guides predate this and start with
 `prometheus-pve-exporter`. That exporter is still useful — but as a *second*
 source, not the first (see [Detecting "down"](#detecting-down)).
 
+> VictoriaMetrics accepts OTLP over **protobuf only**. If your PVE build sends
+> OTLP/JSON its connection test fails with `400 Bad Request`; use
+> `--mode influx` instead, which is the same agentless push over InfluxDB line
+> protocol. See [docs/DEPLOY.md](docs/DEPLOY.md).
+
 **No agent in the guests.** Grafana Alloy and Vector cost 100–150 MB resident
 *each*. Across a dozen guests that is more memory than the entire monitoring
 stack. `rsyslog` is 5–8 MB, reads the journal directly, and emits RFC5424 that

@@ -50,8 +50,33 @@ Run **on each Proxmox host**, pointing at that host's *own* mon LXC:
 
 The script first prints your build's actual metric-server parameters
 (`pvesh usage /cluster/metrics/server/{id} -v`). If they do not match the flags
-it intends to use, configure it in the web UI instead — Datacenter → Metric
-Server → Add → OpenTelemetry — and re-run the script to verify.
+it intends to use, configure it in the web UI instead and re-run to verify.
+
+### If OTLP fails the connection test
+
+PVE runs a connection test before saving, so this is a receiver rejection, not
+a config error:
+
+```
+Connection test failed: 400 Bad Request at PVE/Status/OpenTelemetry.pm
+```
+
+VictoriaMetrics accepts OTLP over **protobuf only**. Confirm what it saw:
+
+```bash
+pct exec 200 -- docker logs hm-vmagent 2>&1 | grep -i opentelemetry | tail -5
+```
+
+If that says `json encoding isn't supported for opentelemetry format`, this PVE
+build emits OTLP/JSON and the two cannot talk. Use InfluxDB line protocol —
+same agentless push, natively ingested by vmagent, tags become labels:
+
+```bash
+./setup-metric-server.sh --target 192.168.0.200 --mode influx --yes
+```
+
+Metric names differ between the modes: Influx produces
+`<measurement>_<field>`, so confirm the real names before writing alert rules.
 
 ### Find the real metric names
 
