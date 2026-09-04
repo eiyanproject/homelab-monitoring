@@ -69,6 +69,10 @@ a{color:var(--accent-ink)}
 .openbtn:hover{filter:brightness(1.08)}
 .openbtn.off{background:var(--surface-2);border-color:var(--rule);color:var(--ink-3);cursor:not-allowed;pointer-events:none}
 .openbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.form{margin-left:auto;display:flex;flex-wrap:wrap;gap:7px;align-items:center;justify-content:flex-end}
+.form input{font:inherit;font-size:13px;padding:6px 10px;border-radius:5px;border:1px solid var(--rule);background:var(--bg);color:var(--ink);min-width:170px}
+.form input:focus{outline:none;border-color:var(--accent)}
+.form input::placeholder{color:var(--ink-3)}
 </style>
 </head>
 <body>
@@ -109,6 +113,68 @@ a{color:var(--accent-ink)}
   <div class="prog" id="prog-role">
     <div class="bar"><span></span></div>
     <div class="step"><span class="txt">…</span><span class="pct">0%</span></div>
+    <div class="joblog"></div>
+  </div>
+</div>
+
+<h2>Credentials</h2>
+<div class="card">
+  <div class="row" style="align-items:flex-start">
+    <div style="min-width:200px">
+      <div class="title" style="font-size:15px">Control panel</div>
+      <div class="desc">Signs in to this page. Leave a field blank to keep it.</div>
+    </div>
+    <div class="form">
+      <input id="cp-user" type="text" autocomplete="off" placeholder="username">
+      <input id="cp-pass" type="password" autocomplete="new-password" placeholder="new password (min 8)">
+      <button id="btn-cp" class="primary">Save</button>
+    </div>
+  </div>
+  <div class="prog" id="prog-cp">
+    <div class="bar"><span></span></div>
+    <div class="step"><span class="txt"></span><span class="pct"></span></div>
+    <div class="joblog"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row" style="align-items:flex-start">
+    <div style="min-width:200px">
+      <div class="title" style="font-size:15px">Grafana admin</div>
+      <div class="desc">Changed through Grafana's API, so it applies immediately. Grafana must be running.</div>
+    </div>
+    <div class="form">
+      <input id="gf-user" type="text" autocomplete="off" placeholder="username">
+      <input id="gf-pass" type="password" autocomplete="new-password" placeholder="new password (min 8)">
+      <button id="btn-gf" class="primary">Save</button>
+    </div>
+  </div>
+  <div class="prog" id="prog-gf">
+    <div class="bar"><span></span></div>
+    <div class="step"><span class="txt"></span><span class="pct"></span></div>
+    <div class="joblog"></div>
+  </div>
+</div>
+
+<h2>Alert channels</h2>
+<div class="card">
+  <div class="row" style="align-items:flex-start">
+    <div style="min-width:200px">
+      <div class="title" style="font-size:15px">Where alerts go <span id="ch-state"></span></div>
+      <div class="desc">Critical goes to all configured channels; warnings prefer Discord.
+        Values are never shown back here &mdash; <strong>a blank field clears that channel</strong>.</div>
+    </div>
+    <div class="form">
+      <input id="ch-ntfy" type="text" autocomplete="off" placeholder="ntfy topic URL">
+      <input id="ch-discord" type="text" autocomplete="off" placeholder="Discord webhook URL">
+      <input id="ch-tgtoken" type="text" autocomplete="off" placeholder="Telegram bot token">
+      <input id="ch-tgchat" type="text" autocomplete="off" placeholder="Telegram chat id">
+      <button id="btn-ch" class="primary">Save &amp; apply</button>
+    </div>
+  </div>
+  <div class="prog" id="prog-ch">
+    <div class="bar"><span></span></div>
+    <div class="step"><span class="txt"></span><span class="pct"></span></div>
     <div class="joblog"></div>
   </div>
 </div>
@@ -323,6 +389,70 @@ async function refresh() {
 
   renderServices(d.services);
 }
+
+async function post(url, body, progId) {
+  const prog = $(progId);
+  prog.classList.add('on');
+  $('.bar', prog).classList.remove('err', 'ok');
+  $('.bar span', prog).style.width = '3%';
+  $('.txt', prog).textContent = 'saving…';
+  $('.pct', prog).textContent = '3%';
+  $('.joblog', prog).textContent = '';
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if (!j.job) throw new Error(j.error || 'request rejected');
+    poll(url, j.job, prog);
+  } catch (e) {
+    $('.bar', prog).classList.add('err');
+    $('.bar span', prog).style.width = '100%';
+    $('.txt', prog).textContent = e.message;
+    $('.pct', prog).textContent = '';
+  }
+}
+
+$('#btn-cp').addEventListener('click', () => {
+  post('/api/settings/control',
+    { user: $('#cp-user').value.trim(), password: $('#cp-pass').value },
+    '#prog-cp');
+  $('#cp-pass').value = '';
+});
+
+$('#btn-gf').addEventListener('click', () => {
+  post('/api/settings/grafana',
+    { user: $('#gf-user').value.trim(), password: $('#gf-pass').value },
+    '#prog-gf');
+  $('#gf-pass').value = '';
+});
+
+$('#btn-ch').addEventListener('click', () => {
+  post('/api/settings/channels', {
+    ntfy: $('#ch-ntfy').value.trim(),
+    discord: $('#ch-discord').value.trim(),
+    telegram_token: $('#ch-tgtoken').value.trim(),
+    telegram_chat: $('#ch-tgchat').value.trim()
+  }, '#prog-ch');
+  ['#ch-ntfy', '#ch-discord', '#ch-tgtoken', '#ch-tgchat'].forEach(i => $(i).value = '');
+});
+
+async function loadSettings() {
+  try {
+    const d = await (await fetch('/api/settings')).json();
+    $('#cp-user').placeholder = d.control_user || 'username';
+    $('#gf-user').placeholder = d.grafana_user || 'username';
+    const c = d.channels || {};
+    const on = Object.entries(c).filter(([, v]) => v).map(([k]) => k);
+    $('#ch-state').innerHTML = on.length
+      ? on.map(n => '<span class="badge b-ok">' + n + '</span>').join(' ')
+      : '<span class="badge b-warn">none configured</span>';
+  } catch (e) { /* panel still usable without this */ }
+}
+loadSettings();
+setInterval(loadSettings, 30000);
 
 $('#btn-promote').addEventListener('click', () => act('grafana', 'promote'));
 $('#btn-demote').addEventListener('click', () => act('grafana', 'demote'));

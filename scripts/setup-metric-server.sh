@@ -47,11 +47,18 @@ if pvesh get /cluster/metrics/server --output-format json 2>/dev/null | grep -q 
   exit 1
 fi
 
+# Three non-obvious defaults, all confirmed from `pvesh usage` on PVE 9.2:
+#   --otel-protocol defaults to https, and vmagent serves plain http
+#   --otel-path     defaults to /v1/metrics, but vmagent listens on
+#                   /opentelemetry/v1/metrics
+#   there is no --enable; the flag is --disable <boolean>
 CMD=(pvesh create "/cluster/metrics/server/${NAME}"
      --type opentelemetry
      --server "$TARGET"
      --port "$PORT"
-     --enable 1)
+     --otel-protocol http
+     --otel-path /opentelemetry/v1/metrics
+     --disable 0)
 
 echo "  Would run:"
 printf '    %s\n' "${CMD[*]}"

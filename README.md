@@ -122,6 +122,12 @@ nothing else is.
   Grafana, so the change survives a reboot
 - **Replication backlog** per destination, straight from vmagent — the single
   number that tells you whether the mirror is healthy
+- **Credentials** — change the panel's own username/password, and Grafana's.
+  Grafana's are changed through its API so they apply immediately; editing
+  `.env` alone would do nothing, because `GF_SECURITY_ADMIN_*` only apply when
+  the database is first created
+- **Alert channels** — set ntfy / Discord / Telegram, which regenerates the
+  provisioning files and restarts Grafana
 - **Logs** for any service, without SSH
 
 ### Lean mode
@@ -144,6 +150,22 @@ respects a manual stop, so it stays down across reboots until you start it.
 > compromising the container does not hand over the cluster. Treat
 > `CONTROL_PASSWORD` as root on this container, and put the panel behind
 > Tailscale or a tunnel rather than on the open LAN.
+
+### Alert channels are generated, not interpolated
+
+Grafana refuses to load a contact point whose url or token is empty, and a
+failed provisioning run **crash-loops the container**. So interpolating
+`${DISCORD_WEBHOOK_URL}` into a committed file means the stack cannot start
+until every channel is configured.
+
+Instead `scripts/render-alerting.sh` generates the contact points from `.env`,
+so an unconfigured channel is *absent* rather than empty. Alert rules always
+load and evaluate; they simply have nowhere to notify until you add a channel.
+The control panel runs this for you; by hand it is:
+
+```bash
+sh scripts/render-alerting.sh /srv/monitoring && docker restart hm-grafana
+```
 
 ## Per-node configuration
 

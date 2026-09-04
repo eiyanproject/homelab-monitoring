@@ -8,3 +8,8 @@ targets/services.json
 # Local scratch
 *.log
 .DS_Store
+
+# Generated from .env by scripts/render-alerting.sh - contains webhook URLs
+# and bot tokens, so it must never be committed.
+config/grafana/provisioning/alerting/contact-points.yml
+config/grafana/provisioning/alerting/notification-policies.yml

@@ -16,6 +16,7 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,6 +33,9 @@ VMAGENT_URL = os.environ.get("VMAGENT_URL", "http://vmagent:8429")
 # tunnel without anything being configured.
 GRAFANA_ROOT_URL = os.environ.get("GRAFANA_ROOT_URL", "")
 GRAFANA_PORT = os.environ.get("GRAFANA_PORT", "3000")
+GRAFANA_API = os.environ.get("GRAFANA_API", "http://grafana:3000")
+GRAFANA_ADMIN_USER = os.environ.get("GRAFANA_ADMIN_USER", "admin")
+GRAFANA_ADMIN_PASSWORD = os.environ.get("GRAFANA_ADMIN_PASSWORD", "")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 # The panel never acts on itself - stopping the control service from the
@@ -230,6 +234,215 @@ def set_alerting_mode(mode):
         lines.append("ALERTING_DIR=%s\n" % target)
     with open(path, "w", encoding="utf-8") as fh:
         fh.writelines(lines)
+
+
+# --------------------------------------------------------------------------
+# settings - credentials and alert channels, written back to .env
+# --------------------------------------------------------------------------
+
+ENV_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
+
+
+def env_read():
+    values = {}
+    try:
+        with open(os.path.join(PROJECT_DIR, ".env"), "r", encoding="utf-8") as fh:
+            for line in fh:
+                m = ENV_KEY_RE.match(line)
+                if m:
+                    values[m.group(1)] = line.split("=", 1)[1].rstrip("\n")
+    except OSError:
+        pass
+    return values
+
+
+def env_write(updates):
+    """Update or append keys in .env, preserving comments and ordering."""
+    path = os.path.join(PROJECT_DIR, ".env")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        lines = []
+    seen = set()
+    out = []
+    for line in lines:
+        m = ENV_KEY_RE.match(line)
+        if m and m.group(1) in updates:
+            key = m.group(1)
+            out.append("%s=%s\n" % (key, updates[key]))
+            seen.add(key)
+        else:
+            out.append(line)
+    for key, value in updates.items():
+        if key not in seen:
+            out.append("%s=%s\n" % (key, value))
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.writelines(out)
+    os.replace(tmp, path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def grafana_api(method, path, body=None, user=None, password=None):
+    url = GRAFANA_API + path
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    creds = "%s:%s" % (
+        user if user is not None else GRAFANA_ADMIN_USER,
+        password if password is not None else GRAFANA_ADMIN_PASSWORD,
+    )
+    req.add_header("Authorization", "Basic " + base64.b64encode(creds.encode()).decode())
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return resp.status, resp.read().decode("utf-8", "replace")
+
+
+def do_control_creds(jid, new_user, new_password):
+    """Change the panel's own credentials, then restart the panel."""
+    try:
+        updates = {}
+        if new_user:
+            updates["CONTROL_USER"] = new_user
+        if new_password:
+            updates["CONTROL_PASSWORD"] = new_password
+        if not updates:
+            upd(jid, state="error", step="nothing to change", percent=100)
+            return
+        upd(jid, step="writing .env", percent=35)
+        env_write(updates)
+        upd(
+            jid,
+            state="done",
+            percent=100,
+            step="saved - panel restarting, sign in again",
+            line="The panel restarts in a moment. Your browser will ask for the new credentials.",
+        )
+
+        # Restart after responding, or the request dies before the UI sees it.
+        def _restart():
+            time.sleep(3)
+            run(["docker", "restart", "hm-control"], timeout=60)
+
+        threading.Thread(target=_restart, daemon=True).start()
+    except Exception as exc:  # noqa: BLE001
+        upd(jid, state="error", step="failed", percent=100, line=str(exc))
+
+
+def do_grafana_creds(jid, new_user, new_password):
+    """
+    Change Grafana's admin credentials through its API.
+
+    GF_SECURITY_ADMIN_* only apply when the database is first created, so
+    editing .env alone would silently do nothing to a running install. We
+    change it live, then write .env so a rebuilt volume matches.
+    """
+    global GRAFANA_ADMIN_USER, GRAFANA_ADMIN_PASSWORD
+    try:
+        if not docker_ps().get("grafana", {}).get("state") == "running":
+            upd(
+                jid,
+                state="error",
+                percent=100,
+                step="Grafana is not running",
+                line="Start Grafana first - its credentials live in its own database.",
+            )
+            return
+
+        upd(jid, step="looking up admin user", percent=20)
+        _, body = grafana_api(
+            "GET", "/api/users/lookup?loginOrEmail=" + urllib.parse.quote(GRAFANA_ADMIN_USER)
+        )
+        user = json.loads(body)
+        uid = user["id"]
+
+        # Rename first, while the old password is still valid.
+        if new_user and new_user != GRAFANA_ADMIN_USER:
+            upd(jid, step="changing username", percent=45)
+            grafana_api(
+                "PUT",
+                "/api/users/%d" % uid,
+                {
+                    "login": new_user,
+                    "email": user.get("email") or new_user,
+                    "name": user.get("name") or new_user,
+                },
+            )
+            GRAFANA_ADMIN_USER = new_user
+            upd(jid, line="username changed")
+
+        if new_password:
+            upd(jid, step="changing password", percent=70)
+            grafana_api("PUT", "/api/admin/users/%d/password" % uid, {"password": new_password})
+            GRAFANA_ADMIN_PASSWORD = new_password
+            upd(jid, line="password changed")
+
+        upd(jid, step="writing .env", percent=90)
+        updates = {}
+        if new_user:
+            updates["GRAFANA_ADMIN_USER"] = new_user
+        if new_password:
+            updates["GRAFANA_ADMIN_PASSWORD"] = new_password
+        env_write(updates)
+        upd(jid, state="done", step="Grafana credentials updated", percent=100)
+    except urllib.error.HTTPError as exc:
+        upd(
+            jid,
+            state="error",
+            percent=100,
+            step="Grafana rejected the change (HTTP %s)" % exc.code,
+            line=exc.read().decode("utf-8", "replace")[:400],
+        )
+    except Exception as exc:  # noqa: BLE001
+        upd(jid, state="error", step="failed", percent=100, line=str(exc))
+
+
+def do_channels(jid, values):
+    """Write alert channels to .env, regenerate provisioning, restart Grafana."""
+    try:
+        upd(jid, step="writing .env", percent=20)
+        env_write(
+            {
+                "NTFY_URL": values.get("ntfy", ""),
+                "DISCORD_WEBHOOK_URL": values.get("discord", ""),
+                "TELEGRAM_BOT_TOKEN": values.get("telegram_token", ""),
+                "TELEGRAM_CHAT_ID": values.get("telegram_chat", ""),
+            }
+        )
+        upd(jid, step="generating contact points", percent=45)
+        rc, out, err = run(
+            ["sh", os.path.join(PROJECT_DIR, "scripts", "render-alerting.sh"), PROJECT_DIR],
+            timeout=60,
+        )
+        for line in (out + err).splitlines():
+            if line.strip():
+                upd(jid, line=line.strip())
+        if rc != 0:
+            upd(jid, state="error", step="could not generate config", percent=100)
+            return
+
+        if docker_ps().get("grafana", {}).get("state") == "running":
+            upd(jid, step="restarting Grafana", percent=65)
+            run(["docker", "restart", "hm-grafana"], timeout=180)
+            ok = wait_healthy(jid, "grafana", 70, 97)
+            upd(
+                jid,
+                state="done" if ok else "error",
+                step="channels applied" if ok else "restarted but not healthy",
+                percent=100,
+            )
+        else:
+            upd(
+                jid,
+                state="done",
+                percent=100,
+                step="saved - applies when Grafana starts",
+            )
+    except Exception as exc:  # noqa: BLE001
+        upd(jid, state="error", step="failed", percent=100, line=str(exc))
 
 
 # --------------------------------------------------------------------------
@@ -459,6 +672,24 @@ class Handler(BaseHTTPRequestHandler):
                 }
             )
 
+        if path == "/api/settings":
+            env = env_read()
+            # Secrets are never sent back to the browser - only whether each
+            # channel is configured. Blank fields in the form mean "clear".
+            return self._json(
+                {
+                    "control_user": CONTROL_USER,
+                    "grafana_user": GRAFANA_ADMIN_USER,
+                    "channels": {
+                        "ntfy": bool(env.get("NTFY_URL")),
+                        "discord": bool(env.get("DISCORD_WEBHOOK_URL")),
+                        "telegram": bool(
+                            env.get("TELEGRAM_BOT_TOKEN") and env.get("TELEGRAM_CHAT_ID")
+                        ),
+                    },
+                }
+            )
+
         if path.startswith("/api/job/"):
             jid = path.rsplit("/", 1)[-1]
             with JOBS_LOCK:
@@ -478,14 +709,47 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         if not self._auth_ok():
             return self._deny()
-        if self.path.split("?")[0] != "/api/action":
-            return self._json({"error": "not found"}, 404)
+        path = self.path.split("?")[0]
 
         length = int(self.headers.get("Content-Length") or 0)
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
         except json.JSONDecodeError:
             return self._json({"error": "bad json"}, 400)
+
+        if path == "/api/settings/control":
+            user = (payload.get("user") or "").strip()
+            pw = payload.get("password") or ""
+            if pw and len(pw) < 8:
+                return self._json({"error": "password must be at least 8 characters"}, 400)
+            if not user and not pw:
+                return self._json({"error": "nothing to change"}, 400)
+            jid = new_job("control", "credentials")
+            threading.Thread(
+                target=do_control_creds, args=(jid, user, pw), daemon=True
+            ).start()
+            return self._json({"job": jid})
+
+        if path == "/api/settings/grafana":
+            user = (payload.get("user") or "").strip()
+            pw = payload.get("password") or ""
+            if pw and len(pw) < 8:
+                return self._json({"error": "password must be at least 8 characters"}, 400)
+            if not user and not pw:
+                return self._json({"error": "nothing to change"}, 400)
+            jid = new_job("grafana", "credentials")
+            threading.Thread(
+                target=do_grafana_creds, args=(jid, user, pw), daemon=True
+            ).start()
+            return self._json({"job": jid})
+
+        if path == "/api/settings/channels":
+            jid = new_job("grafana", "channels")
+            threading.Thread(target=do_channels, args=(jid, payload), daemon=True).start()
+            return self._json({"job": jid})
+
+        if path != "/api/action":
+            return self._json({"error": "not found"}, 404)
 
         action = payload.get("action")
         service = payload.get("service")

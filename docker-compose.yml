@@ -95,17 +95,20 @@ services:
       - victoriametrics
       - victorialogs
     environment:
+      # These two apply only when the Grafana database is first created.
+      # Changing them later is done through the control panel, which calls
+      # Grafana's API - see control/app.py.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       GF_INSTALL_PLUGINS: victoriametrics-logs-datasource
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
-      # Consumed by the provisioned contact points.
-      NTFY_URL: ${NTFY_URL:-}
-      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # Alert channels are NOT passed in here. Grafana refuses to load a
+      # contact point with an empty url, which crash-loops provisioning, so
+      # the files are generated from .env by scripts/render-alerting.sh and an
+      # unconfigured channel is simply absent.
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
@@ -142,6 +145,9 @@ services:
       VMAGENT_URL: http://vmagent:8429
       GRAFANA_ROOT_URL: ${GRAFANA_LINK_URL:-}
       GRAFANA_PORT: "3000"
+      GRAFANA_API: http://grafana:3000
+      GRAFANA_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PROJECT_DIR:-/srv/monitoring}:/srv/monitoring

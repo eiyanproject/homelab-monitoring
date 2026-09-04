@@ -131,6 +131,7 @@ pct exec "$CTID" -- bash -lc "
 NODE_NAME=${HOSTNAME_}
 PEER_IP=${PEER}
 ALERTING_DIR=${ALERTING_DIR}
+GRAFANA_ADMIN_USER=admin
 GRAFANA_ADMIN_PASSWORD=${GRAFANA_PW}
 GRAFANA_ROOT_URL=http://${LOCAL_IP}:3000
 BIND_ADDR=0.0.0.0
@@ -151,6 +152,12 @@ EOF
   cp -n /srv/monitoring/targets/guests.json.example   /srv/monitoring/targets/guests.json
   cp -n /srv/monitoring/targets/services.json.example /srv/monitoring/targets/services.json
 "
+
+# Alert channels are empty at this point. Generating the provisioning files
+# from .env means Grafana starts with no contact points at all, rather than
+# with empty ones - which it refuses to load, crash-looping the container.
+echo "==> generating alert provisioning"
+pct exec "$CTID" -- bash -lc 'sh /srv/monitoring/scripts/render-alerting.sh /srv/monitoring'
 
 echo "==> starting the stack (first pull and build take a few minutes)"
 pct exec "$CTID" -- bash -lc 'cd /srv/monitoring && docker compose up -d --build'
@@ -185,7 +192,8 @@ cat <<DONE
     2. ./gen-targets.sh --ctid ${CTID}                   (then add it to cron)
     3. ./setup-guest-logging.sh --collector ${LOCAL_IP}  (installs rsyslog in guests)
 
-  Alert channels go in /srv/monitoring/.env on the PRIMARY node, then
-  restart Grafana from the control panel.
+  Alert channels are set in the control panel (Alert channels section). It
+  writes .env, regenerates the provisioning files and restarts Grafana. You
+  can also change both sets of credentials there.
 
 DONE
