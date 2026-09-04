@@ -13,7 +13,7 @@ set -euo pipefail
 CTID=""; HOSTNAME_=""; IP=""; GW=""; PEER=""; ROLE="primary"
 STORAGE="local-lvm"; DISK="40"; MEMORY="1536"; CORES="2"; BRIDGE="vmbr0"
 REPO="https://github.com/eiyanproject/homelab-monitoring.git"
-CONFIRM="no"
+CONFIRM="no"; LEAN="no"; CONTROL_PORT="8080"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -31,6 +31,8 @@ while [[ $# -gt 0 ]]; do
     --cores)    CORES="$2"; shift 2 ;;
     --bridge)   BRIDGE="$2"; shift 2 ;;
     --repo)     REPO="$2"; shift 2 ;;
+    --control-port) CONTROL_PORT="$2"; shift 2 ;;
+    --lean)     LEAN="yes"; shift ;;
     --yes)      CONFIRM="yes"; shift ;;
     -h|--help)  sed -n '2,12p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -72,6 +74,8 @@ cat <<PLAN
   features      nesting=1,keyctl=1  (required for Docker in an unprivileged LXC)
   peer          ${PEER}
   alerting      ${ROLE}  ->  ${ALERTING_DIR}
+  lean mode     ${LEAN}  $( [[ "$LEAN" == "yes" ]] && echo "(Grafana created but left stopped, saves ~317 MB)" )
+  control panel http://${IP%%/*}:${CONTROL_PORT}
   template      ${TEMPLATE}
   repo          ${REPO}
 
@@ -120,6 +124,7 @@ pct exec "$CTID" -- bash -lc "
 
 echo "==> writing .env"
 GRAFANA_PW=$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)
+CONTROL_PW=$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)
 LOCAL_IP="${IP%%/*}"
 pct exec "$CTID" -- bash -lc "
   cat > /srv/monitoring/.env <<EOF
@@ -129,6 +134,11 @@ ALERTING_DIR=${ALERTING_DIR}
 GRAFANA_ADMIN_PASSWORD=${GRAFANA_PW}
 GRAFANA_ROOT_URL=http://${LOCAL_IP}:3000
 BIND_ADDR=0.0.0.0
+CONTROL_USER=admin
+CONTROL_PASSWORD=${CONTROL_PW}
+CONTROL_PORT=${CONTROL_PORT}
+PROJECT_DIR=/srv/monitoring
+LEAN_MODE=${LEAN}
 METRICS_RETENTION=90d
 LOGS_RETENTION=30d
 BUFFER_MAX=2GB
@@ -142,22 +152,40 @@ EOF
   cp -n /srv/monitoring/targets/services.json.example /srv/monitoring/targets/services.json
 "
 
-echo "==> starting the stack (first pull takes a few minutes)"
-pct exec "$CTID" -- bash -lc 'cd /srv/monitoring && docker compose up -d'
+echo "==> starting the stack (first pull and build take a few minutes)"
+pct exec "$CTID" -- bash -lc 'cd /srv/monitoring && docker compose up -d --build'
+
+if [[ "$LEAN" == "yes" ]]; then
+  # Create Grafana, then stop it. `restart: unless-stopped` respects a manual
+  # stop, so it stays down across reboots until you start it from the panel.
+  echo "==> lean mode: stopping Grafana (it stays created, ready to start)"
+  pct exec "$CTID" -- bash -lc 'docker stop hm-grafana >/dev/null'
+fi
 
 cat <<DONE
 
   Done.
 
-  Grafana    http://${LOCAL_IP}:3000
-  user       admin
-  password   ${GRAFANA_PW}          <- save this now, it is not stored anywhere else
+  Control panel  http://${LOCAL_IP}:${CONTROL_PORT}
+  user           admin
+  password       ${CONTROL_PW}
 
-  Next:
-    1. Add your alert channels to /srv/monitoring/.env on the PRIMARY node,
-       then: cd /srv/monitoring && docker compose up -d
-    2. ./setup-metric-server.sh --target ${LOCAL_IP}     (on THIS Proxmox host)
-    3. ./gen-targets.sh --ctid ${CTID}                   (then add it to cron)
-    4. ./setup-guest-logging.sh --collector ${LOCAL_IP}  (installs rsyslog in guests)
+  Grafana        http://${LOCAL_IP}:3000  $( [[ "$LEAN" == "yes" ]] && echo "(stopped - start it from the panel)" )
+  user           admin
+  password       ${GRAFANA_PW}
+
+  SAVE BOTH PASSWORDS NOW. They are generated here and stored nowhere else.
+
+  The control panel starts and stops Grafana, promotes this node to primary,
+  shows replication backlog, and tails logs - so you do not need a console for
+  routine work. It cannot reach the Proxmox host; the steps below still need
+  one, and are run HERE, not in the container:
+
+    1. ./setup-metric-server.sh --target ${LOCAL_IP}     (agentless PVE push)
+    2. ./gen-targets.sh --ctid ${CTID}                   (then add it to cron)
+    3. ./setup-guest-logging.sh --collector ${LOCAL_IP}  (installs rsyslog in guests)
+
+  Alert channels go in /srv/monitoring/.env on the PRIMARY node, then
+  restart Grafana from the control panel.
 
 DONE

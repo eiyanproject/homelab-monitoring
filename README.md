@@ -1,14 +1,14 @@
 # homelab-monitoring
 
 Metrics, logs and alerting for a two-node Proxmox VE 9 cluster, in about
-**500 MB per node**, with a **complete second copy of all metrics** — and
+**448 MB per node, measured**, with a **complete second copy of all metrics** — and
 without needing the HA manager, a QDevice, ZFS, or shared storage.
 
 One repo builds both nodes. The only difference between them is three lines in
 `.env`.
 
 ```
-VictoriaMetrics  ·  VictoriaLogs  ·  vmagent  ·  Grafana
+VictoriaMetrics · VictoriaLogs · vmagent · Grafana · control panel
 ```
 
 ## Why not Prometheus, Loki and the HA manager
@@ -90,7 +90,7 @@ cd /srv/homelab-monitoring/scripts
 ```bash
 ./bootstrap-lxc.sh --ctid 200 --hostname mon-b \
   --ip 192.168.0.201/24 --gw 192.168.0.1 \
-  --peer 192.168.0.200 --role standby --yes
+  --peer 192.168.0.200 --role standby --lean --yes
 ```
 
 Then on each host, in order:
@@ -105,6 +105,46 @@ Every script prints its plan and changes nothing until you add `--yes`.
 
 Full walkthrough with verification steps: [docs/DEPLOY.md](docs/DEPLOY.md).
 
+## Control panel
+
+A small always-on web UI on **:8080**, so routine work needs no console.
+
+It is deliberately **separate from Grafana**, for the obvious reason: a button
+inside Grafana cannot start Grafana. It is the smallest service here (~15 MB,
+Alpine + Python stdlib, no dependencies) precisely because it has to be up when
+nothing else is.
+
+- **Open Grafana** — a link, built from whatever hostname you reached the panel
+  on, so it is correct over LAN, Tailscale or a tunnel with nothing configured
+- **Start / Stop / Restart** any stack service, with a live progress bar that
+  tracks the real container state through to its health check passing
+- **Promote / demote** this node's alerting role — rewrites `.env` and recreates
+  Grafana, so the change survives a reboot
+- **Replication backlog** per destination, straight from vmagent — the single
+  number that tells you whether the mirror is healthy
+- **Logs** for any service, without SSH
+
+### Lean mode
+
+Grafana is **317 MB of the ~450 MB** stack, and it is the one component you do
+not need running until you want to look at something. `--lean` creates it and
+leaves it stopped:
+
+```bash
+./bootstrap-lxc.sh ... --role standby --lean --yes
+```
+
+That node still receives and stores **every metric**, continuously — it just
+does not render them until you press Start. Roughly 130–250 MB instead of
+450 MB, which matters on a node that is short of RAM. `restart: unless-stopped`
+respects a manual stop, so it stays down across reboots until you start it.
+
+> The panel can reach the Docker socket and nothing else. Operations that need
+> the hypervisor — `pct`, `pvesh`, `pvecm expected 1` — are **not** exposed, so
+> compromising the container does not hand over the cluster. Treat
+> `CONTROL_PASSWORD` as root on this container, and put the panel behind
+> Tailscale or a tunnel rather than on the open LAN.
+
 ## Per-node configuration
 
 Three lines in `.env` are all that differ:
@@ -115,8 +155,9 @@ Three lines in `.env` are all that differ:
 | `PEER_IP` | node B's mon LXC | node A's mon LXC |
 | `ALERTING_DIR` | `…/alerting` | `…/alerting-disabled` |
 
-Alerting runs on **one** node, or every alert arrives twice forever. Promoting
-the standby is a change to `ALERTING_DIR` plus `docker compose up -d`.
+Alerting runs on **one** node, or every alert arrives twice forever. Promote
+the standby with the control panel button, or by editing `ALERTING_DIR` and
+running `docker compose up -d`.
 
 ## Verifying it actually works
 
@@ -162,6 +203,7 @@ looks identical to a quiet one. Three ways to cover it, in order of preference:
 | `config/vmagent/` | Scrape config, file-based service discovery |
 | `config/grafana/provisioning/` | Datasources, dashboards, contact points, alert rules |
 | `dashboards/` | Stack Health |
+| `control/` | The always-on control panel (Alpine + Python stdlib) |
 | `scripts/` | Bootstrap and the three host-side helpers |
 | `docs/` | Deploy guide, service contract, PVE alert notes |
 

@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stack Control</title>
+<style>
+:root{
+  --bg:#F6F7F8;--surface:#fff;--surface-2:#EDF0F2;--ink:#14191D;--ink-2:#49545D;--ink-3:#6E7B85;
+  --rule:#D6DDE2;--accent:#0B6E77;--accent-ink:#08545B;--accent-soft:#DFEFF0;
+  --ok:#2C7A46;--ok-soft:#E1F0E6;--warn:#8F5D08;--warn-soft:#F6EAD4;--crit:#AB3128;--crit-soft:#F8E2E0;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0E1316;--surface:#161C21;--surface-2:#1C242A;--ink:#E7EDF1;--ink-2:#A9B6BF;--ink-3:#7C8A94;
+  --rule:#28323A;--accent:#4FC9D3;--accent-ink:#83DEE6;--accent-soft:#11333A;
+  --ok:#66C384;--ok-soft:#152F1F;--warn:#E2AB41;--warn-soft:#332714;--crit:#EF7B6C;--crit-soft:#371C19;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.wrap{max-width:960px;margin:0 auto;padding:26px 20px 70px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px;border-bottom:1px solid var(--rule);padding-bottom:16px;margin-bottom:22px}
+h1{font-size:21px;margin:0;letter-spacing:-.01em}
+.node{font-family:ui-monospace,monospace;font-size:12px;color:var(--ink-3)}
+.spacer{margin-left:auto}
+.badge{display:inline-block;font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:3px;white-space:nowrap}
+.b-ok{background:var(--ok-soft);color:var(--ok)}
+.b-warn{background:var(--warn-soft);color:var(--warn)}
+.b-crit{background:var(--crit-soft);color:var(--crit)}
+.b-mute{background:var(--surface-2);color:var(--ink-3)}
+.b-acc{background:var(--accent-soft);color:var(--accent-ink)}
+
+.strip{background:var(--surface);border:1px solid var(--rule);border-radius:7px;padding:14px 16px;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:22px;align-items:center}
+.metric .k{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.metric .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:7px;padding:15px 17px;margin-bottom:11px}
+.card.busy{border-color:var(--accent)}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:11px}
+.title{font-weight:600;font-size:15.5px}
+.desc{color:var(--ink-2);font-size:13.2px;margin-top:3px}
+.meta{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--ink-3);margin-top:5px}
+.actions{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+button{font:inherit;font-size:13px;padding:6px 13px;border-radius:5px;border:1px solid var(--rule);background:var(--surface-2);color:var(--ink);cursor:pointer;white-space:nowrap}
+button:hover:not(:disabled){border-color:var(--accent);color:var(--accent-ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){button.primary{color:#06232a}}
+button.danger:hover:not(:disabled){border-color:var(--crit);color:var(--crit)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.prog{margin-top:13px;display:none}
+.prog.on{display:block}
+.bar{height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden}
+.bar span{display:block;height:100%;width:0;background:var(--accent);border-radius:3px;transition:width .35s ease}
+.bar.err span{background:var(--crit)}
+.bar.ok span{background:var(--ok)}
+.step{display:flex;gap:9px;align-items:center;font-family:ui-monospace,monospace;font-size:11.5px;color:var(--ink-3);margin-top:7px}
+.step .pct{margin-left:auto;font-variant-numeric:tabular-nums}
+.joblog{margin-top:9px;background:var(--surface-2);border:1px solid var(--rule);border-radius:5px;padding:9px 11px;max-height:150px;overflow:auto;font-family:ui-monospace,monospace;font-size:11px;line-height:1.5;color:var(--ink-2);white-space:pre-wrap;word-break:break-word}
+.logbox{margin-top:11px;background:var(--surface-2);border:1px solid var(--rule);border-radius:5px;padding:10px;max-height:300px;overflow:auto;font-family:ui-monospace,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word;display:none}
+.logbox.on{display:block}
+h2{font-size:12px;font-family:ui-monospace,monospace;font-weight:500;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin:26px 0 10px}
+.note{font-size:12.8px;color:var(--ink-3);background:var(--surface);border:1px solid var(--rule);border-left:3px solid var(--warn);border-radius:0 6px 6px 0;padding:11px 14px;margin-top:8px}
+a{color:var(--accent-ink)}
+.dest{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--ink-2)}
+.openbtn{display:inline-block;font-size:13px;padding:6px 13px;border-radius:5px;border:1px solid var(--accent);background:var(--accent);color:#fff;text-decoration:none;white-space:nowrap}
+@media (prefers-color-scheme:dark){.openbtn{color:#06232a}}
+.openbtn:hover{filter:brightness(1.08)}
+.openbtn.off{background:var(--surface-2);border-color:var(--rule);color:var(--ink-3);cursor:not-allowed;pointer-events:none}
+.openbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Stack Control</h1>
+  <span class="node" id="nodename">connecting…</span>
+  <span class="spacer"></span>
+  <a id="grafanalink" class="openbtn" href="#" target="_blank" rel="noopener">Open Grafana &#8599;</a>
+  <span id="alertbadge" class="badge b-mute">alerting …</span>
+</header>
+
+<div class="strip">
+  <div class="metric"><div class="k">Services up</div><div class="v" id="m-up">—</div></div>
+  <div class="metric"><div class="k">Replication backlog</div><div class="v" id="m-backlog">—</div></div>
+  <div class="metric"><div class="k">Peer</div><div class="v mono" id="m-peer" style="font-size:13px">—</div></div>
+  <div class="metric" style="margin-left:auto"><div class="k">Refreshed</div><div class="v mono" id="m-time" style="font-size:13px">—</div></div>
+</div>
+
+<div id="dests"></div>
+
+<h2>Services</h2>
+<div id="services"></div>
+
+<h2>Alerting role</h2>
+<div class="card">
+  <div class="row">
+    <div>
+      <div class="title" id="role-title">—</div>
+      <div class="desc">Alert rules must evaluate on exactly one node, or every alert arrives twice. Promote this node only when the other one is down.</div>
+    </div>
+    <div class="actions">
+      <button id="btn-promote">Promote to primary</button>
+      <button id="btn-demote">Demote to standby</button>
+    </div>
+  </div>
+  <div class="prog" id="prog-role">
+    <div class="bar"><span></span></div>
+    <div class="step"><span class="txt">…</span><span class="pct">0%</span></div>
+    <div class="joblog"></div>
+  </div>
+</div>
+
+<div class="note" id="hostnote">
+  Operations that need the Proxmox host itself — <span class="mono">pct</span>,
+  <span class="mono">pvesh</span>, <span class="mono">pvecm expected 1</span> — are not exposed here.
+  This panel can only reach the Docker socket inside this container, by design.
+</div>
+
+</div>
+
+<script>
+"use strict";
+const $ = (s, r) => (r || document).querySelector(s);
+const fmtBytes = (n) => {
+  if (n === null || n === undefined) return "—";
+  if (n < 1024) return n + " B";
+  const u = ["KB", "MB", "GB", "TB"];
+  let i = -1, v = n;
+  do { v /= 1024; i++; } while (v >= 1024 && i < u.length - 1);
+  return v.toFixed(v < 10 ? 1 : 0) + " " + u[i];
+};
+
+let busy = {};      // service -> job id
+let logOpen = {};
+
+function stateBadge(svc) {
+  if (svc.state === "running") {
+    if (svc.health === "unhealthy") return ['b-crit', 'unhealthy'];
+    if (svc.health === "starting") return ['b-warn', 'starting'];
+    return ['b-ok', 'running'];
+  }
+  if (svc.state === "exited") return ['b-crit', 'exited'];
+  if (svc.state === "not created") return ['b-mute', 'not created'];
+  return ['b-mute', svc.state || 'unknown'];
+}
+
+function renderServices(list) {
+  const root = $("#services");
+  list.forEach(svc => {
+    let card = $('#svc-' + svc.name);
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'card';
+      card.id = 'svc-' + svc.name;
+      card.innerHTML =
+        '<div class="row">' +
+          '<div style="min-width:220px"><div class="title"></div><div class="desc"></div><div class="meta"></div></div>' +
+          '<div class="actions">' +
+            '<button data-a="start">Start</button>' +
+            '<button data-a="restart">Restart</button>' +
+            '<button data-a="stop" class="danger">Stop</button>' +
+            '<button data-a="logs">Logs</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="prog"><div class="bar"><span></span></div>' +
+        '<div class="step"><span class="txt"></span><span class="pct"></span></div>' +
+        '<div class="joblog"></div></div>' +
+        '<div class="logbox"></div>';
+      root.appendChild(card);
+      card.querySelectorAll('button').forEach(b => {
+        b.addEventListener('click', () => {
+          const a = b.dataset.a;
+          if (a === 'logs') return toggleLogs(svc.name);
+          act(svc.name, a);
+        });
+      });
+    }
+    const [cls, text] = stateBadge(svc);
+    $('.title', card).innerHTML =
+      svc.label + ' <span class="badge ' + cls + '">' + text + '</span>' +
+      (svc.optional ? ' <span class="badge b-acc">optional</span>' : '');
+    $('.desc', card).textContent = svc.desc;
+    $('.meta', card).textContent =
+      (svc.memory ? svc.memory : svc.expected_ram + ' expected') +
+      (svc.status ? '  ·  ' + svc.status : '');
+
+    const running = svc.state === 'running';
+    const b = busy[svc.name];
+    card.classList.toggle('busy', !!b);
+    $('[data-a=start]', card).disabled = running || !!b;
+    $('[data-a=stop]', card).disabled = !running || !!b;
+    $('[data-a=restart]', card).disabled = !running || !!b;
+  });
+}
+
+async function toggleLogs(name) {
+  const card = $('#svc-' + name);
+  const box = $('.logbox', card);
+  logOpen[name] = !logOpen[name];
+  box.classList.toggle('on', logOpen[name]);
+  if (!logOpen[name]) return;
+  box.textContent = 'loading…';
+  try {
+    const r = await fetch('/api/logs/' + name);
+    const j = await r.json();
+    box.textContent = j.log || '(empty)';
+    box.scrollTop = box.scrollHeight;
+  } catch (e) { box.textContent = 'failed to load logs'; }
+}
+
+function progressEl(service) {
+  return service === '__role__' ? $('#prog-role') : $('.prog', $('#svc-' + service));
+}
+
+async function act(service, action) {
+  const key = action === 'promote' || action === 'demote' ? '__role__' : service;
+  if (busy[key]) return;
+  const prog = progressEl(key);
+  prog.classList.add('on');
+  $('.bar', prog).classList.remove('err', 'ok');
+  $('.bar span', prog).style.width = '3%';
+  $('.txt', prog).textContent = 'starting…';
+  $('.pct', prog).textContent = '3%';
+  $('.joblog', prog).textContent = '';
+
+  let jid;
+  try {
+    const r = await fetch('/api/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service, action })
+    });
+    const j = await r.json();
+    if (!j.job) throw new Error(j.error || 'no job');
+    jid = j.job;
+  } catch (e) {
+    $('.bar', prog).classList.add('err');
+    $('.bar span', prog).style.width = '100%';
+    $('.txt', prog).textContent = 'failed to start: ' + e.message;
+    return;
+  }
+
+  busy[key] = jid;
+  if (key === '__role__') { $('#btn-promote').disabled = true; $('#btn-demote').disabled = true; }
+  poll(key, jid, prog);
+}
+
+async function poll(key, jid, prog) {
+  try {
+    const r = await fetch('/api/job/' + jid);
+    const j = await r.json();
+    $('.bar span', prog).style.width = Math.max(3, j.percent || 0) + '%';
+    $('.txt', prog).textContent = j.step || '';
+    $('.pct', prog).textContent = (j.percent || 0) + '%';
+    if (j.log && j.log.length) {
+      const box = $('.joblog', prog);
+      box.textContent = j.log.join('\n');
+      box.scrollTop = box.scrollHeight;
+    }
+    if (j.state === 'running') { setTimeout(() => poll(key, jid, prog), 900); return; }
+    $('.bar', prog).classList.add(j.state === 'done' ? 'ok' : 'err');
+    delete busy[key];
+    if (key === '__role__') { $('#btn-promote').disabled = false; $('#btn-demote').disabled = false; }
+    refresh();
+    setTimeout(() => { if (!busy[key]) prog.classList.remove('on'); }, 6000);
+  } catch (e) {
+    delete busy[key];
+    setTimeout(refresh, 500);
+  }
+}
+
+async function refresh() {
+  let d;
+  try {
+    const r = await fetch('/api/status');
+    d = await r.json();
+  } catch (e) {
+    $('#nodename').textContent = 'connection lost — retrying';
+    return;
+  }
+  $('#nodename').textContent = 'node ' + d.node;
+  $('#m-peer').textContent = d.peer || 'not set';
+  $('#m-time').textContent = new Date(d.time * 1000).toLocaleTimeString();
+
+  const up = d.services.filter(s => s.state === 'running').length;
+  $('#m-up').textContent = up + ' / ' + d.services.length;
+
+  // Build from the hostname the browser already reached us on, so the link is
+  // correct over LAN, Tailscale or a tunnel without being configured.
+  const gf = d.grafana_url || (location.protocol + '//' + location.hostname + ':' + (d.grafana_port || '3000'));
+  const gsvc = d.services.find(s => s.name === 'grafana') || {};
+  const link = $('#grafanalink');
+  const gUp = gsvc.state === 'running';
+  link.href = gUp ? gf : '#';
+  link.classList.toggle('off', !gUp);
+  link.textContent = gUp ? 'Open Grafana ↗' : 'Grafana stopped';
+  link.title = gUp ? gf : 'Start Grafana below, then this becomes a link';
+
+  const badge = $('#alertbadge');
+  badge.textContent = 'alerting ' + d.alerting;
+  badge.className = 'badge ' + (d.alerting === 'primary' ? 'b-ok' : 'b-mute');
+  $('#role-title').textContent = d.alerting === 'primary'
+    ? 'This node evaluates and sends alerts'
+    : 'This node is on standby — rules loaded, nothing sent';
+  $('#btn-promote').disabled = d.alerting === 'primary' || !!busy['__role__'];
+  $('#btn-demote').disabled = d.alerting === 'standby' || !!busy['__role__'];
+
+  const rep = d.replication || {};
+  const dests = rep.destinations || [];
+  const total = dests.reduce((a, x) => a + (x.pending_bytes || 0), 0);
+  $('#m-backlog').textContent = rep.available ? fmtBytes(total) : 'vmagent down';
+  $('#dests').innerHTML = dests.length
+    ? '<div class="card"><div class="row"><div><div class="title" style="font-size:14px">Replication destinations</div>' +
+      dests.map(x =>
+        '<div class="dest" style="margin-top:5px">' + x.url + ' — ' +
+        '<span class="badge ' + (x.pending_bytes > 536870912 ? 'b-crit' : x.pending_bytes > 0 ? 'b-warn' : 'b-ok') + '">' +
+        fmtBytes(x.pending_bytes) + ' queued</span></div>').join('') +
+      '</div></div></div>'
+    : '';
+
+  renderServices(d.services);
+}
+
+$('#btn-promote').addEventListener('click', () => act('grafana', 'promote'));
+$('#btn-demote').addEventListener('click', () => act('grafana', 'demote'));
+refresh();
+setInterval(() => { if (!Object.keys(busy).length) refresh(); }, 5000);
+</script>
+</body>
+</html>

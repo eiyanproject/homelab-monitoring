@@ -31,7 +31,8 @@ have already watched the mechanism the whole design rests on.
 
 ### Exit criteria
 
-- [ ] Grafana loads on `:3000`
+- [ ] Control panel loads on `:8080` and shows 5/5 services
+- [ ] Grafana loads on `:3000` (or opens from the panel's link in lean mode)
 - [ ] Both data sources test green (Connections → Data sources)
 - [ ] **Stack Health** dashboard shows 4/4 components up
 - [ ] `Replication backlog` is non-zero and rising — the peer is unreachable
