@@ -98,7 +98,12 @@ groups:
           - refId: A
             relativeTimeRange: {from: 900, to: 0}
             datasourceUid: victoriametrics
-            model: {editorMode: code, expr: 'cpustat_iowait{object="nodes"} * 100', instant: true, range: false, refId: A}
+            # cpustat_wait, NOT cpustat_iowait. Confirmed on a live cluster:
+            # iowait is a cumulative counter (tens of thousands of jiffies and
+            # climbing), wait is the instantaneous 0-1 ratio. Using iowait made
+            # this rule fire permanently and it would have kept re-notifying
+            # every 4h - a false alert that never clears is worse than no rule.
+            model: {editorMode: code, expr: 'cpustat_wait{object="nodes"} * 100', instant: true, range: false, refId: A}
           - refId: B
             relativeTimeRange: {from: 900, to: 0}
             datasourceUid: __expr__
