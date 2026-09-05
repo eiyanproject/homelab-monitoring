@@ -133,7 +133,12 @@ install -d -m 755 /opt/hm-watchdog /etc/hm-watchdog
 install -m 755 "${SRC_DIR}/watchdog.py" /opt/hm-watchdog/watchdog.py
 
 cat > /etc/hm-watchdog/watchdog.env <<EOF
-NTFY_URL=https://${DOMAIN}/${TOPIC}
+# Localhost, not the public hostname. The watchdog sits on the same box as
+# ntfy, so going out to Cloudflare and back in through the tunnel is both
+# slower and fragile - a host often cannot reach its own tunnelled hostname
+# (hairpin), and a DNS hiccup would silently stop alerts from a service whose
+# entire job is to alert. The public URL is for the nodes at home.
+NTFY_URL=http://127.0.0.1:${NTFY_PORT}/${TOPIC}
 NTFY_TOKEN=${TOKEN}
 EXPECTED=${EXPECTED}
 STALE_AFTER=${STALE_AFTER}
@@ -181,6 +186,11 @@ cat <<NEXT
   --------------------------------------------------------------------------
   3. CREDENTIALS - save these now, they are not stored anywhere else
   --------------------------------------------------------------------------
+  Public topic URL for the homelab nodes:
+      https://${DOMAIN}/${TOPIC}
+  (the watchdog itself uses http://127.0.0.1:${NTFY_PORT}/${TOPIC} - same topic,
+   no round trip through Cloudflare)
+
   Publish token (goes in the homelab .env as NTFY_TOKEN):
       ${TOKEN:-<none - run: ntfy token add hm-publish>}
 
