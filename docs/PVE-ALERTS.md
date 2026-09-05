@@ -7,73 +7,89 @@ below were read off a live cluster rather than inferred.
 
 ## The schema, confirmed on PVE 9.2
 
-These are the real names from the InfluxDB push, not guesses:
+Read off a live cluster. **Nodes and guests use completely different
+measurement families** — this is the thing that catches people out.
 
-| Measurement | Useful fields | Applies to |
-| --- | --- | --- |
-| `cpustat_*` | `cpu` (0–1), `cpus`, `avg1/5/15`, `iowait`, `idle`, `user`, `system`, `wait`, `steal` | nodes and guests |
-| `blockstat_*` | `used`, `blocks`, `bavail`, `rd_bytes`, `wr_bytes`, `rd_operations`, `wr_operations` | guests |
-| `ballooninfo_*` | `total_mem`, `free_mem`, `max_mem`, `mem_swapped_in/out` | QEMU guests **with the agent** |
+**`object="nodes"`**
 
-Labels:
-
-| Label | Values |
+| Metric | Notes |
 | --- | --- |
-| `object` | `nodes`, `lxc`, `qemu`, `storages` |
-| `host` | node name *or* guest name *or* storage name, depending on `object` |
-| `vmid` | guest id |
-| `nodename` | which PVE node a guest is on |
-| `node` | **ours**, not PVE's — which vmagent ingested the sample |
+| `cpustat_cpu` | **0–1 fraction, not a percent.** Multiply by 100 |
+| `cpustat_cpus`, `cpustat_avg1/5/15` | core count and load average |
+| `cpustat_iowait`, `idle`, `user`, `system`, `steal` | also fractions |
+| `memory_memtotal/memused/memfree/memavailable` | bytes |
+| `memory_swaptotal/swapused/swapfree` | bytes |
+| `memory_arcsize/arcmin/arcmax` | ZFS ARC — zero without ZFS |
+| `nics_receive`, `nics_transmit` | counters, use `rate()` |
+| `blockstat_*` | the **node's** root filesystem, not any guest's |
+| `system_uptime` | seconds |
 
-Note `cpustat_cpu` is a **fraction, not a percent** — multiply by 100.
+**`object="lxc"` and `object="qemu"`**
 
-`config/grafana/provisioning/alerting/rules-pve.yml` already ships rules against
-these, and `dashboards/proxmox.json` is built for them.
+| Metric | Notes |
+| --- | --- |
+| `system_cpu` | fraction; `system_cpus` is the core count |
+| `system_mem` / `system_maxmem` | bytes used vs the configured limit |
+| `system_disk` / `system_maxdisk` | **guest filesystem usage, with no agent installed** |
+| `system_netin`, `system_netout` | counters |
+| `system_diskread`, `system_diskwrite` | counters |
+| `system_status` | guest state — see below |
+| `system_pressure{cpu,io,memory}{some,full}` | PSI: time tasks spent *blocked* |
+| `system_uptime`, `system_pid`, `system_name`, `system_tags` | |
+
+QEMU adds `ballooninfo_*` (guest agent only), `blockstat_*` for virtual block
+devices, and `nics_netin`/`nics_netout`.
+
+**`object="storages"`**: `system_used`, `system_total`, `system_avail`,
+plus `system_active`, `system_enabled`, `system_shared`.
+
+Labels everywhere: `host` (node **or** guest **or** storage name, depending on
+`object`), `vmid`, `nodename`, and `node` — which is *ours*, identifying the
+vmagent that ingested the sample.
+
+### Two things worth knowing
+
+**`system_disk` / `system_maxdisk` means guest disk alerts need no agent.**
+That removes most of the reason to install `node_exporter` in every guest.
+
+**PSI is the best early warning here.** `system_pressureiosome` rises while a
+disk is *starting* to struggle, well before any utilisation graph saturates.
 
 > **Community dashboards do not work with this push.** 10347, 23855 and 24550
-> all expect either OTLP names or the `pve_*` series from
-> `prometheus-pve-exporter`. Add that exporter if you want them, which also
-> gives you a real `up` series — see the bottom of this page.
+> all expect OTLP names or the `pve_*` series from `prometheus-pve-exporter`.
+> `dashboards/proxmox.json` is built for the names above; add that exporter if
+> you want the community ones, which also gives you a real `up` series.
 
 ## The guest-stopped rule
 
-Alert on the **transition**, not the state. A naive "guest is not running" rule
-fires forever for every guest you intentionally left off, which is the fastest
-way to train yourself to ignore your own alerts.
-
-Which form is correct depends on whether PVE keeps reporting `cpustat` for a
-stopped guest. Settle it with one query — compare the count to how many guests
-are actually running:
+`system_status` exists for both `lxc` and `qemu`, which is the right signal —
+but PVE's status is a *string* (`running` / `stopped`), and how VictoriaMetrics
+stored it decides the rule. Check with:
 
 ```bash
-curl -s 'http://<mon-ip>:8428/api/v1/query'   --data-urlencode 'query=count by (object) (cpustat_cpu)'
+curl -s 'http://<mon-ip>:8428/api/v1/query'   --data-urlencode 'query=system_status{object=~"lxc|qemu"}' | head -c 600
 ```
 
-**If the count matches only running guests**, stopped guests stop reporting, so
-detect the disappearance — seen in the last 2h, absent for 5m:
+**If it returns numeric values** (e.g. `1` for running), alert on the
+transition, so a guest you deliberately left off never alerts:
 
 ```promql
-max by (vmid, host, nodename) (max_over_time(cpustat_cpu{object=~"lxc|qemu"}[2h]))
+system_status{object=~"lxc|qemu"} == 0
+  and max_over_time(system_status{object=~"lxc|qemu"}[2h]) == 1
+```
+
+**If it returns nothing, or every guest reads `0`**, the string was not stored
+as a usable value. Then detect disappearance instead — seen in the last 2h,
+absent for the last 5m:
+
+```promql
+max by (vmid, host, nodename) (max_over_time(system_cpu{object=~"lxc|qemu"}[2h]))
 unless
-max by (vmid, host, nodename) (last_over_time(cpustat_cpu{object=~"lxc|qemu"}[5m]))
+max by (vmid, host, nodename) (last_over_time(system_cpu{object=~"lxc|qemu"}[5m]))
 ```
 
-A guest off for weeks never alerts, and a deliberate shutdown costs one
-notification that self-clears after two hours.
-
-**If the count matches every configured guest**, stopped guests report zeros, so
-find the status field instead:
-
-```bash
-curl -s 'http://<mon-ip>:8428/api/v1/label/__name__/values'   | tr ',' '
-' | grep -iE 'status|uptime|running'
-```
-
-and alert on that going to 0 with the same `max_over_time` / `last_over_time`
-transition shape.
-
-Either way, add a Proxmox **tag** (`noalert`) to guests you toggle often and
-exclude them, so the rule needs no maintenance.
+Either way, tag guests you toggle often with `noalert` in Proxmox and exclude
+them, so the rule needs no maintenance as your guest list changes.
 
 ## Backups
 

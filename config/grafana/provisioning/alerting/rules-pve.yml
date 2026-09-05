@@ -1,23 +1,28 @@
 apiVersion: 1
 
 # Rules against the metric names PVE's InfluxDB push actually produces,
-# confirmed on a live PVE 9.2 cluster:
+# read off a live PVE 9.2 cluster. Nodes and guests use DIFFERENT measurement
+# families - this is the thing that catches people out:
 #
-#   cpustat_cpu       0-1 fraction, object=nodes|lxc|qemu
-#   cpustat_avg1/15   load average          cpustat_cpus  core count
-#   cpustat_iowait    0-1 fraction
-#   blockstat_used / blockstat_blocks       guest rootfs usage
-#   ballooninfo_*     QEMU guests with the guest agent only
+#   object=nodes     cpustat_* (cpu is a 0-1 FRACTION), memory_memused/memtotal/
+#                    swapused, nics_receive/transmit, blockstat_* (node rootfs),
+#                    system_uptime
+#   object=lxc       system_cpu, system_mem/maxmem, system_disk/maxdisk,
+#                    system_netin/netout, system_diskread/diskwrite,
+#                    system_status, system_pressure{cpu,io,memory}{some,full}
+#   object=qemu      the same system_* set, plus ballooninfo_* (agent only)
+#                    and blockstat_* (virtual block devices)
+#   object=storages  system_used / system_total / system_avail
 #
-# Labels: object (nodes|lxc|qemu|storages), host (node OR guest name),
-#         vmid, nodename. `node` is OUR label - which vmagent ingested it.
+# Labels: host (node OR guest OR storage name), vmid, nodename, object.
+# `node` is OUR label - which vmagent ingested the sample.
 #
-# The guest-stopped rule is NOT here: whether PVE keeps reporting cpustat for a
-# stopped guest decides which form is correct. See docs/PVE-ALERTS.md.
+# The guest-stopped rule is not here yet: system_status exists, but how its
+# value is encoded decides the rule. See docs/PVE-ALERTS.md.
 
 groups:
   - orgId: 1
-    name: proxmox
+    name: proxmox-nodes
     folder: Homelab Alerts
     interval: 1m
     rules:
@@ -27,21 +32,15 @@ groups:
         for: 15m
         noDataState: OK
         execErrState: OK
-        labels:
-          severity: warning
+        labels: {severity: warning}
         annotations:
           summary: "{{ $labels.host }} has been above 90% CPU for 15 minutes"
-          runbook: "Find the guest responsible on the Proxmox dashboard's Guest CPU panel. Sustained saturation on a 2.6x overcommitted node usually means one guest changed behaviour, not that the node is undersized."
+          runbook: "Find the guest responsible on the Proxmox dashboard's Guest CPU panel. On an overcommitted node this usually means one guest changed behaviour, not that the node is undersized."
         data:
           - refId: A
             relativeTimeRange: {from: 900, to: 0}
             datasourceUid: victoriametrics
-            model:
-              editorMode: code
-              expr: 'cpustat_cpu{object="nodes"} * 100'
-              instant: true
-              range: false
-              refId: A
+            model: {editorMode: code, expr: 'cpustat_cpu{object="nodes"} * 100', instant: true, range: false, refId: A}
           - refId: B
             relativeTimeRange: {from: 900, to: 0}
             datasourceUid: __expr__
@@ -62,21 +61,15 @@ groups:
         for: 20m
         noDataState: OK
         execErrState: OK
-        labels:
-          severity: warning
+        labels: {severity: warning}
         annotations:
-          summary: "{{ $labels.host }} 15m load exceeds its core count"
-          runbook: "Work is queueing rather than running. Compare against the I/O wait panel first - storage contention looks like CPU load but is not."
+          summary: "{{ $labels.host }} 15m load is 1.5x its core count"
+          runbook: "Work is queueing rather than running. Check I/O wait first - storage contention looks like CPU load but is not."
         data:
           - refId: A
             relativeTimeRange: {from: 1200, to: 0}
             datasourceUid: victoriametrics
-            model:
-              editorMode: code
-              expr: 'cpustat_avg15{object="nodes"} / cpustat_cpus{object="nodes"}'
-              instant: true
-              range: false
-              refId: A
+            model: {editorMode: code, expr: 'cpustat_avg15{object="nodes"} / cpustat_cpus{object="nodes"}', instant: true, range: false, refId: A}
           - refId: B
             relativeTimeRange: {from: 1200, to: 0}
             datasourceUid: __expr__
@@ -97,8 +90,7 @@ groups:
         for: 15m
         noDataState: OK
         execErrState: OK
-        labels:
-          severity: warning
+        labels: {severity: warning}
         annotations:
           summary: "{{ $labels.host }} is spending over 20% of its time waiting on storage"
           runbook: "Usually a backup, a large restore, or a failing disk. Check SMART before assuming it is workload."
@@ -106,12 +98,7 @@ groups:
           - refId: A
             relativeTimeRange: {from: 900, to: 0}
             datasourceUid: victoriametrics
-            model:
-              editorMode: code
-              expr: 'cpustat_iowait{object="nodes"} * 100'
-              instant: true
-              range: false
-              refId: A
+            model: {editorMode: code, expr: 'cpustat_iowait{object="nodes"} * 100', instant: true, range: false, refId: A}
           - refId: B
             relativeTimeRange: {from: 900, to: 0}
             datasourceUid: __expr__
@@ -126,27 +113,84 @@ groups:
                   reducer: {params: [], type: last}
                   type: query
 
-      - uid: hm-pve-guest-fs
-        title: Guest filesystem nearly full
+      - uid: hm-pve-node-memory
+        title: Node memory nearly exhausted
         condition: B
         for: 10m
         noDataState: OK
         execErrState: OK
-        labels:
-          severity: critical
+        labels: {severity: critical}
         annotations:
-          summary: "{{ $labels.host }} (vmid {{ $labels.vmid }}) rootfs is over 90% full"
+          summary: "{{ $labels.host }} is above 95% memory"
+          runbook: "The OOM killer picks its own victim, and it will not be the one you would choose. Stop or shrink a guest now."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'memory_memused{object="nodes"} / memory_memtotal{object="nodes"} * 100', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [95], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-pve-node-swap-growth
+        title: Node swap use growing
+        condition: B
+        for: 20m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.host }} has swapped a further 100 MB in the last hour"
+          runbook: "Deliberately measures GROWTH, not absolute swap. A node sitting on a steady few hundred MB is normal and must not alert every day; swap that keeps climbing is memory pressure getting worse."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'delta(memory_swapused{object="nodes"}[1h])', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [104857600], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+  - orgId: 1
+    name: proxmox-guests
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-pve-guest-disk
+        title: Guest disk nearly full
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.host }} (vmid {{ $labels.vmid }}) is over 90% disk"
           runbook: "PVE reports this for the guest's own filesystem, so no node_exporter is needed. Inside the guest: du -xh --max-depth=2 / | sort -h | tail -20"
         data:
           - refId: A
             relativeTimeRange: {from: 600, to: 0}
             datasourceUid: victoriametrics
-            model:
-              editorMode: code
-              expr: '(blockstat_used / blockstat_blocks) * 100'
-              instant: true
-              range: false
-              refId: A
+            model: {editorMode: code, expr: 'system_disk{object=~"lxc|qemu"} / system_maxdisk{object=~"lxc|qemu"} * 100', instant: true, range: false, refId: A}
           - refId: B
             relativeTimeRange: {from: 600, to: 0}
             datasourceUid: __expr__
@@ -161,27 +205,55 @@ groups:
                   reducer: {params: [], type: last}
                   type: query
 
-      - uid: hm-pve-vm-swap
-        title: VM is swapping
+      - uid: hm-pve-guest-disk-trend
+        title: Guest disk will be full within 4 days
+        condition: B
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.host }} (vmid {{ $labels.vmid }}) is projected to fill within 4 days"
+          runbook: "Projected from the last 6h of growth. This is the alert that gives you a weekend instead of a 3am one - act on it while it is still a warning."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 21600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'predict_linear(system_disk{object=~"lxc|qemu"}[6h], 4*86400) > system_maxdisk{object=~"lxc|qemu"}'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 21600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-pve-guest-memory
+        title: Guest memory nearly exhausted
         condition: B
         for: 15m
         noDataState: OK
         execErrState: OK
-        labels:
-          severity: warning
+        labels: {severity: warning}
         annotations:
-          summary: "{{ $labels.host }} is swapping inside the guest"
-          runbook: "The guest is short of RAM. The hypervisor's own memory figure will not show this - only the balloon driver does. QEMU guests with the agent only."
+          summary: "{{ $labels.host }} (vmid {{ $labels.vmid }}) is above 95% of its memory limit"
+          runbook: "Raise the guest's memory in Proxmox, or find what grew inside it. For LXC this is a hard cgroup limit - the guest gets OOM-killed, the node does not."
         data:
           - refId: A
             relativeTimeRange: {from: 900, to: 0}
             datasourceUid: victoriametrics
-            model:
-              editorMode: code
-              expr: 'rate(ballooninfo_mem_swapped_in[5m]) + rate(ballooninfo_mem_swapped_out[5m])'
-              instant: true
-              range: false
-              refId: A
+            model: {editorMode: code, expr: 'system_mem{object=~"lxc|qemu"} / system_maxmem{object=~"lxc|qemu"} * 100', instant: true, range: false, refId: A}
           - refId: B
             relativeTimeRange: {from: 900, to: 0}
             datasourceUid: __expr__
@@ -190,7 +262,70 @@ groups:
               expression: A
               refId: B
               conditions:
-                - evaluator: {params: [1024], type: gt}
+                - evaluator: {params: [95], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-pve-guest-io-pressure
+        title: Guest stalled on I/O
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.host }} (vmid {{ $labels.vmid }}) is stalled waiting on I/O"
+          runbook: "PSI measures time tasks spent BLOCKED, which rises before any utilisation graph saturates. Often the earliest sign a disk is going."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'system_pressureiosome{object=~"lxc|qemu"}', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [30], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+  - orgId: 1
+    name: proxmox-storage
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-pve-storage-full
+        title: Storage nearly full
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: critical}
+        annotations:
+          summary: "Storage {{ $labels.host }} on {{ $labels.nodename }} is over 90% used"
+          runbook: "thin-LVM does not fail gracefully when it fills - guests go read-only. Free space before it gets there."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'system_used{object="storages"} / system_total{object="storages"} * 100', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [90], type: gt}
                   operator: {type: and}
                   query: {params: [B]}
                   reducer: {params: [], type: last}
