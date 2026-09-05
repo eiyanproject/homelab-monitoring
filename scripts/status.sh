@@ -178,6 +178,27 @@ if [[ -n "$MON" ]]; then
   fi
 fi
 
+# --- 8. config drift -------------------------------------------------------
+hdr "8. Config"
+# .env is written once at bootstrap and never revisited, so as the repo gains
+# keys an existing install silently falls behind. A missing key does not error -
+# compose substitutes a default or an empty string - so it surfaces later as
+# something unrelated, e.g. an empty username failing an API call.
+if [[ -n "$CTID" ]] && pct status "$CTID" &>/dev/null; then
+  missing=$(pct exec "$CTID" -- sh -c '
+    cd /srv/monitoring 2>/dev/null || exit 0
+    [ -f .env.example ] && [ -f .env ] || exit 0
+    for k in $(grep -oE "^[A-Z][A-Z0-9_]*=" .env.example | tr -d "="); do
+      grep -q "^${k}=" .env || printf "%s " "$k"
+    done' 2>/dev/null)
+  if [[ -n "${missing// /}" ]]; then
+    todo "keys the repo expects are missing from .env: ${missing}"
+    info "add them with the defaults from .env.example, then restart the affected service"
+  else
+    ok ".env has every key the repo expects"
+  fi
+fi
+
 # --- summary ---------------------------------------------------------------
 hdr "================ next ================"
 if [[ ${#NEXT[@]} -eq 0 ]]; then
