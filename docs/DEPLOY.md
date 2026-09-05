@@ -191,8 +191,16 @@ Rather than deleting safety nets on a timer — which fails precisely when you
 need one — report their age and alert on it:
 
 ```bash
-(crontab -l 2>/dev/null | grep -v report-snapshots; echo "0 * * * * /srv/homelab-monitoring/scripts/report-snapshots.sh --target 192.168.0.200 --quiet") | crontab -
+(echo 'MAILTO=""'; crontab -l 2>/dev/null | grep -vE '^MAILTO=|report-snapshots'; echo '0 * * * * /srv/homelab-monitoring/scripts/report-snapshots.sh --target 192.168.0.200 --quiet 2>&1 | logger -t report-snapshots') | crontab -
 ```
+
+> **Pipe cron output to `logger`, and set `MAILTO=""`.** cron mails *any* output
+> a job produces to root, and Proxmox forwards root's mail onward. On a home
+> connection outbound port 25 is normally blocked, so those mails pile up in a
+> deferred queue that never drains — a job running every 5 minutes builds a
+> queue you will never look at. Piping to `logger` puts the same output in
+> syslog, which you are now shipping to VictoriaLogs, where it is actually
+> readable.
 
 That publishes `pve_snapshot_age_seconds` and `pve_snapshot_count`, and the
 **Forgotten snapshot** rule warns at 14 days. Nothing is ever deleted.
