@@ -32,6 +32,16 @@ EXPECTED = [n.strip() for n in os.environ.get("EXPECTED", "").split(",") if n.st
 STALE_AFTER = int(os.environ.get("STALE_AFTER", "300"))
 LISTEN = os.environ.get("LISTEN", "127.0.0.1:9911")
 STATE_FILE = os.environ.get("STATE_FILE", "/var/lib/hm-watchdog/state.json")
+# Pull mode. "name=url,name=url" - the watchdog fetches each url and treats a
+# 2xx/3xx as a heartbeat from that node.
+#
+# Push is the textbook design, but it requires the monitored nodes to reach
+# this host, and a Tailscale subnet router gives you tailnet -> LAN, not the
+# reverse. Polling uses the direction that already works and needs nothing
+# installed on the nodes. Both modes feed the same staleness logic, so you can
+# use either or both.
+POLL_TARGETS = os.environ.get("POLL_TARGETS", "")
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
 
 LOCK = threading.Lock()
 STATE = {}          # node -> {"last": epoch, "alerted": bool, "info": {...}}
@@ -90,6 +100,49 @@ def notify(title, message, priority="default", tags=""):
     except (urllib.error.URLError, OSError, TimeoutError) as exc:
         log("notify failed: %s" % exc)
         return False
+
+
+def parse_targets():
+    targets = {}
+    for item in POLL_TARGETS.split(","):
+        item = item.strip()
+        if not item or "=" not in item:
+            continue
+        name, _, url = item.partition("=")
+        name, url = name.strip(), url.strip()
+        if name and url:
+            targets[name] = url
+    return targets
+
+
+def record_beat(node, info):
+    with LOCK:
+        st = STATE.setdefault(node, {"last": 0, "alerted": False, "info": {}})
+        st["last"] = time.time()
+        st["info"] = info
+        save_state()
+
+
+def poller():
+    """Fetch each target. A 2xx/3xx counts as that node being alive."""
+    targets = parse_targets()
+    if not targets:
+        return
+    log("polling %d target(s) every %ds: %s"
+        % (len(targets), POLL_INTERVAL, ", ".join(sorted(targets))))
+    while True:
+        for name, url in targets.items():
+            code = None
+            try:
+                with urllib.request.urlopen(url, timeout=10) as resp:
+                    code = resp.status
+            except urllib.error.HTTPError as exc:
+                code = exc.code
+            except (urllib.error.URLError, OSError, TimeoutError):
+                code = None
+            if code is not None and 200 <= code < 400:
+                record_beat(name, {"via": "poll", "url": url, "code": code})
+        time.sleep(POLL_INTERVAL)
 
 
 def checker():
@@ -181,11 +234,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError):
             info = {}
 
-        with LOCK:
-            st = STATE.setdefault(node, {"last": 0, "alerted": False, "info": {}})
-            st["last"] = time.time()
-            st["info"] = info if isinstance(info, dict) else {}
-            save_state()
+        record_beat(node, info if isinstance(info, dict) else {})
         return self._json({"ok": True, "node": node})
 
     def do_GET(self):  # noqa: N802
@@ -216,4 +265,6 @@ if __name__ == "__main__":
     log("watchdog on %s, stale after %ds, expecting: %s"
         % (LISTEN, STALE_AFTER, ", ".join(EXPECTED) or "(anything that reports)"))
     threading.Thread(target=checker, daemon=True).start()
+    if POLL_TARGETS.strip():
+        threading.Thread(target=poller, daemon=True).start()
     ThreadingHTTPServer((host or "127.0.0.1", int(port)), Handler).serve_forever()

@@ -16,6 +16,11 @@ set -euo pipefail
 
 DOMAIN=""; TOPIC=""; CONFIRM="no"; NTFY_PORT="2586"; WD_PORT="9911"
 EXPECTED="mon-eiyan,mon-eiyan2"; STALE_AFTER="300"
+# Pull, not push. A Tailscale subnet router gives this host a route INTO the
+# LAN, but gives the LAN no route back - so the nodes cannot reach us, while we
+# can reach them. Poll the direction that works.
+POLL_TARGETS="mon-eiyan2=http://192.168.0.200:8428/health,mon-eiyan=http://192.168.0.201:8428/health"
+POLL_INTERVAL="60"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -25,6 +30,8 @@ while [[ $# -gt 0 ]]; do
     --topic)       TOPIC="$2"; shift 2 ;;
     --expected)    EXPECTED="$2"; shift 2 ;;
     --stale-after) STALE_AFTER="$2"; shift 2 ;;
+    --poll)        POLL_TARGETS="$2"; shift 2 ;;
+    --poll-interval) POLL_INTERVAL="$2"; shift 2 ;;
     --yes)         CONFIRM="yes"; shift ;;
     -h|--help)     sed -n '2,14p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -47,7 +54,9 @@ cat <<PLAN
   access          deny-all by default; a token is issued for publishing
   watchdog        listens on 127.0.0.1:${WD_PORT}
   expecting       ${EXPECTED}
-  alerts after    ${STALE_AFTER}s without a heartbeat
+  polling         ${POLL_TARGETS}
+  poll every      ${POLL_INTERVAL}s
+  alerts after    ${STALE_AFTER}s without a sign of life
 
   Caddy and cloudflared are NOT modified. The snippets are printed at the end.
 
@@ -128,6 +137,8 @@ NTFY_URL=https://${DOMAIN}/${TOPIC}
 NTFY_TOKEN=${TOKEN}
 EXPECTED=${EXPECTED}
 STALE_AFTER=${STALE_AFTER}
+POLL_TARGETS=${POLL_TARGETS}
+POLL_INTERVAL=${POLL_INTERVAL}
 LISTEN=127.0.0.1:${WD_PORT}
 STATE_FILE=/var/lib/hm-watchdog/state.json
 EOF
@@ -181,10 +192,14 @@ cat <<NEXT
   --------------------------------------------------------------------------
   NTFY_URL=https://${DOMAIN}/${TOPIC}
   NTFY_TOKEN=${TOKEN}
-  HEARTBEAT_URL=https://${DOMAIN%%.*}-wd.${DOMAIN#*.}      <-- see note below
 
-  The watchdog is NOT exposed publicly by these steps. Either give it its own
-  hostname the same way, or have the nodes reach it over Tailscale, which is
-  simpler and keeps it off the internet entirely.
+  then:  sh scripts/render-alerting.sh /srv/monitoring
+         docker restart hm-grafana
+
+  No HEARTBEAT_URL is needed: this watchdog POLLS the nodes rather than waiting
+  to be pushed to, because a subnet router routes tailnet -> LAN and not the
+  reverse. Nothing has to be installed or opened on the nodes.
+
+  Check what it sees:   curl -s localhost:${WD_PORT}/status
 
 NEXT
