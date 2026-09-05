@@ -153,8 +153,18 @@ Bootstrap node B exactly like node A, with the peer reversed and
   --peer 192.168.0.200 --role standby --yes
 ```
 
-Then point node B's metric server at node B's own mon LXC, and run
-`gen-targets.sh` and `setup-guest-logging.sh` there too with node B's collector.
+> **VMIDs are unique cluster-wide, not per node.** If node A's mon LXC is 200,
+> node B's must be something else - 201 here. `pvesh get /cluster/nextid` gives
+> you a free one.
+
+Then run `gen-targets.sh` and `setup-guest-logging.sh` on node B pointing at
+node B's own mon LXC. The metric server does **not** need redoing - `status.cfg`
+is cluster-replicated, so node B is already pushing. Instead add a *second*
+target so both nodes push to both stores:
+
+```bash
+./setup-metric-server.sh --target 192.168.0.201 --name vmagent-b --yes
+```
 
 ### The failure test
 

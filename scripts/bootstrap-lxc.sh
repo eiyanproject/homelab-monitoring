@@ -47,7 +47,16 @@ command -v pct >/dev/null || die "pct not found - run this on the Proxmox host"
 [[ -n "$PEER"      ]] || die "--peer is required (the OTHER node's mon LXC IP)"
 [[ "$ROLE" == "primary" || "$ROLE" == "standby" ]] || die "--role must be primary or standby"
 
-pct status "$CTID" &>/dev/null && die "CTID $CTID already exists - pick another"
+# VMIDs are unique across the whole CLUSTER, not per node. `pct status` only
+# knows about guests on this host, so on a cluster it would happily accept an
+# ID already used on the other node, and pct create then fails confusingly.
+if pvesh get /cluster/resources --type vm --output-format json 2>/dev/null \
+     | grep -qE "\"vmid\":\s*${CTID}[,}]"; then
+  suggested=$(pvesh get /cluster/nextid 2>/dev/null || true)
+  die "CTID $CTID is already in use somewhere in this cluster${suggested:+ - next free id is $suggested}"
+fi
+# Fallback for a standalone node where /cluster/resources is unavailable.
+pct status "$CTID" &>/dev/null && die "CTID $CTID already exists on this node - pick another"
 
 # Find a Debian template that is already downloaded, newest first.
 TEMPLATE=$(pveam list local 2>/dev/null | awk '/debian-1[0-9]-standard/ {print $1}' | sort -V | tail -1 || true)
