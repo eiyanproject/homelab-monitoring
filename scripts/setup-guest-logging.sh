@@ -65,7 +65,7 @@ fi
 echo
 echo "  Collector   ${COLLECTOR}:${PORT}  (RFC5424 over TCP)"
 echo "  Config      ${CONF_LINE}"
-echo "  Host        $( [[ "$INCLUDE_HOST" == "yes" ]] && echo "yes - $(hostname) journal included" || echo "skipped" )"
+echo "  Host        $( [[ "$INCLUDE_HOST" == "yes" ]] && echo "$(hostname) journal -> ${HOST_COLLECTOR:-$COLLECTOR}${HOST_COLLECTOR:+  (cross-shipped)}" || echo "skipped" )"
 echo
 printf "  %-6s %-22s %s\n" CTID HOSTNAME ACTION
 for id in $IDS; do
@@ -125,7 +125,14 @@ if [[ "$INCLUDE_HOST" == "yes" ]]; then
   if ! command -v rsyslogd >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get update -qq && apt-get install -y -qq rsyslog
   fi
-  printf '%s\n' "$CONF_LINE" > /etc/rsyslog.d/90-victorialogs.conf
+  # The host ships to HOST_COLLECTOR when given, so a node that dies leaves
+  # its final log lines on the OTHER node instead of on itself.
+  HOST_LINE="$CONF_LINE"
+  if [[ -n "$HOST_COLLECTOR" ]]; then
+    HOST_LINE="*.* @@${HOST_COLLECTOR}:${PORT};RSYSLOG_SyslogProtocol23Format"
+    echo "    cross-shipping this host journal to ${HOST_COLLECTOR}"
+  fi
+  printf '%s\n' "$HOST_LINE" > /etc/rsyslog.d/90-victorialogs.conf
   systemctl restart rsyslog && echo "    ok"
 fi
 
