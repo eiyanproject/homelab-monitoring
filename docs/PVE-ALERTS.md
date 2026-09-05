@@ -1,68 +1,79 @@
 # Proxmox guest alerts
 
-These are **not** shipped in `rules.yml`, deliberately. The metric names emitted
-by the PVE 9 OpenTelemetry push differ from the `pve_*` series that
-exporter-based guides use, and they can differ between PVE point releases.
-Shipping rules against guessed names produces rules that silently never fire —
-worse than having no rule, because you believe you are covered.
+The metric names from PVE's push match nothing that guides or community
+dashboards assume, and rules written against guessed names silently never fire
+— worse than having no rule, because you believe you are covered. So the names
+below were read off a live cluster rather than inferred.
 
-## Step 1 — find out what you actually have
+## The schema, confirmed on PVE 9.2
 
-After `setup-metric-server.sh`:
+These are the real names from the InfluxDB push, not guesses:
 
-```bash
-curl -s 'http://192.168.0.200:8428/api/v1/label/__name__/values' \
-  | tr ',' '\n' | grep -iE 'proxmox|pve' | sort | head -40
-```
+| Measurement | Useful fields | Applies to |
+| --- | --- | --- |
+| `cpustat_*` | `cpu` (0–1), `cpus`, `avg1/5/15`, `iowait`, `idle`, `user`, `system`, `wait`, `steal` | nodes and guests |
+| `blockstat_*` | `used`, `blocks`, `bavail`, `rd_bytes`, `wr_bytes`, `rd_operations`, `wr_operations` | guests |
+| `ballooninfo_*` | `total_mem`, `free_mem`, `max_mem`, `mem_swapped_in/out` | QEMU guests **with the agent** |
 
-Then inspect one to see its labels:
+Labels:
 
-```bash
-curl -s --data-urlencode 'query=<metric_name_you_found>' \
-  'http://192.168.0.200:8428/api/v1/query' | head -c 800
-```
+| Label | Values |
+| --- | --- |
+| `object` | `nodes`, `lxc`, `qemu`, `storages` |
+| `host` | node name *or* guest name *or* storage name, depending on `object` |
+| `vmid` | guest id |
+| `nodename` | which PVE node a guest is on |
+| `node` | **ours**, not PVE's — which vmagent ingested the sample |
 
-You are looking for: a per-guest **running/status** gauge, a per-guest **memory
-used vs max**, and a per-storage **used vs total**.
+Note `cpustat_cpu` is a **fraction, not a percent** — multiply by 100.
 
-## Step 2 — the rule that matters most
+`config/grafana/provisioning/alerting/rules-pve.yml` already ships rules against
+these, and `dashboards/proxmox.json` is built for them.
+
+> **Community dashboards do not work with this push.** 10347, 23855 and 24550
+> all expect either OTLP names or the `pve_*` series from
+> `prometheus-pve-exporter`. Add that exporter if you want them, which also
+> gives you a real `up` series — see the bottom of this page.
+
+## The guest-stopped rule
 
 Alert on the **transition**, not the state. A naive "guest is not running" rule
 fires forever for every guest you intentionally left off, which is the fastest
 way to train yourself to ignore your own alerts.
 
-```promql
-# fires only for something that WAS running recently and now is not
-<guest_running_metric> == 0
-  and max_over_time(<guest_running_metric>[2h]) == 1
+Which form is correct depends on whether PVE keeps reporting `cpustat` for a
+stopped guest. Settle it with one query — compare the count to how many guests
+are actually running:
+
+```bash
+curl -s 'http://<mon-ip>:8428/api/v1/query'   --data-urlencode 'query=count by (object) (cpustat_cpu)'
 ```
 
-A guest that has been off for weeks never alerts. Deliberately stopping
-something costs you one notification that then self-resolves after two hours —
-which is arguably correct, since you did just stop a thing.
-
-For guests you toggle often, add a Proxmox **tag** (`noalert`) and exclude it:
+**If the count matches only running guests**, stopped guests stop reporting, so
+detect the disappearance — seen in the last 2h, absent for 5m:
 
 ```promql
-... unless on(guest) <metric>{tags=~".*noalert.*"}
+max by (vmid, host, nodename) (max_over_time(cpustat_cpu{object=~"lxc|qemu"}[2h]))
+unless
+max by (vmid, host, nodename) (last_over_time(cpustat_cpu{object=~"lxc|qemu"}[5m]))
 ```
 
-Check whether your push exposes tags as a label first; if not, exclude by name.
+A guest off for weeks never alerts, and a deliberate shutdown costs one
+notification that self-clears after two hours.
 
-## Step 3 — the rest
+**If the count matches every configured guest**, stopped guests report zeros, so
+find the status field instead:
 
-Adapt to your metric names, then add to
-`config/grafana/provisioning/alerting/rules.yml` following the shape of the
-existing rules. Remember `noDataState: OK` and `execErrState: OK` on every one.
+```bash
+curl -s 'http://<mon-ip>:8428/api/v1/label/__name__/values'   | tr ',' '
+' | grep -iE 'status|uptime|running'
+```
 
-| Alert | Shape | Severity |
-| --- | --- | --- |
-| Guest stopped unexpectedly | transition rule above, `for: 5m` | warning |
-| Cluster lost quorum | quorate gauge `== 0` | critical |
-| Storage nearly full | used / total `> 0.9` | critical |
-| Storage filling | `predict_linear(avail[6h], 4*86400) < 0` | warning |
-| Guest memory pressure | used / max `> 0.95` for 15m | warning |
-| Backup job failed | see below | critical |
+and alert on that going to 0 with the same `max_over_time` / `last_over_time`
+transition shape.
+
+Either way, add a Proxmox **tag** (`noalert`) to guests you toggle often and
+exclude them, so the rule needs no maintenance.
 
 ## Backups
 

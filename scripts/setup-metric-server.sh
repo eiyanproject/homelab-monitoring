@@ -19,9 +19,20 @@
 #           connection test fails with 400 Bad Request. Kept only in case a
 #           later PVE adds protobuf, or you point it at an OTel Collector.
 #
-# Each node should point at its OWN local mon LXC, never the peer's: local
-# collection has no network dependency, so a link failure between nodes cannot
-# lose data - the local agent keeps collecting and buffering.
+# NOTE: /etc/pve/status.cfg is CLUSTER-REPLICATED, so this is not a per-node
+# setting. Running this once configures every node, and every node then pushes
+# to every enabled target. Each node reports only its own metrics, so a single
+# target receives one complete, non-duplicated view of the cluster.
+#
+# For redundancy, create one entry per mon LXC with different --name values:
+#
+#   ./setup-metric-server.sh --target 192.168.0.200 --name vmagent-a --yes
+#   ./setup-metric-server.sh --target 192.168.0.201 --name vmagent-b --yes
+#
+# Both nodes then push to both stores. If one mon LXC is down the other still
+# receives everything from both nodes, so the push path stops being a single
+# point of failure - the same property vmagent's dual-write gives the scrape
+# path. Run these from ONE node; the cluster replicates them.
 set -euo pipefail
 
 TARGET=""; PORT="8429"; NAME="vmagent"; CONFIRM="no"; MODE="influx"
@@ -138,11 +149,12 @@ fi
 echo
 echo "==> configured. verifying data arrives (up to 90s)..."
 # Influx mode names metrics <measurement>_<field> (cpustat_cpu, memory_used),
-# so 'proxmox' appears only as the db LABEL and never in the metric name.
-# Check the right thing per mode, or this always times out.
+# so grepping metric names for proxmox|pve finds nothing. PVE does not send a
+# db label either - confirmed empty on a real cluster - so the reliable marker
+# is the `object` label, which only PVE emits: lxc, qemu, nodes, storages.
 if [[ "$MODE" == "influx" ]]; then
-  CHECK_URL="http://${TARGET}:8428/api/v1/label/db/values"
-  CHECK_PAT='proxmox'
+  CHECK_URL="http://${TARGET}:8428/api/v1/label/object/values"
+  CHECK_PAT='lxc|qemu|nodes|storages'
 else
   CHECK_URL="http://${TARGET}:8428/api/v1/label/__name__/values"
   CHECK_PAT='proxmox|pve'

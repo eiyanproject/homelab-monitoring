@@ -1,0 +1,197 @@
+apiVersion: 1
+
+# Rules against the metric names PVE's InfluxDB push actually produces,
+# confirmed on a live PVE 9.2 cluster:
+#
+#   cpustat_cpu       0-1 fraction, object=nodes|lxc|qemu
+#   cpustat_avg1/15   load average          cpustat_cpus  core count
+#   cpustat_iowait    0-1 fraction
+#   blockstat_used / blockstat_blocks       guest rootfs usage
+#   ballooninfo_*     QEMU guests with the guest agent only
+#
+# Labels: object (nodes|lxc|qemu|storages), host (node OR guest name),
+#         vmid, nodename. `node` is OUR label - which vmagent ingested it.
+#
+# The guest-stopped rule is NOT here: whether PVE keeps reporting cpustat for a
+# stopped guest decides which form is correct. See docs/PVE-ALERTS.md.
+
+groups:
+  - orgId: 1
+    name: proxmox
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-pve-node-cpu
+        title: Node CPU saturated
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} has been above 90% CPU for 15 minutes"
+          runbook: "Find the guest responsible on the Proxmox dashboard's Guest CPU panel. Sustained saturation on a 2.6x overcommitted node usually means one guest changed behaviour, not that the node is undersized."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'cpustat_cpu{object="nodes"} * 100'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [90], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-pve-node-load
+        title: Node load above core count
+        condition: B
+        for: 20m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} 15m load exceeds its core count"
+          runbook: "Work is queueing rather than running. Compare against the I/O wait panel first - storage contention looks like CPU load but is not."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1200, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'cpustat_avg15{object="nodes"} / cpustat_cpus{object="nodes"}'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 1200, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1.5], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-pve-node-iowait
+        title: Node I/O wait high
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} is spending over 20% of its time waiting on storage"
+          runbook: "Usually a backup, a large restore, or a failing disk. Check SMART before assuming it is workload."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'cpustat_iowait{object="nodes"} * 100'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [20], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-pve-guest-fs
+        title: Guest filesystem nearly full
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.host }} (vmid {{ $labels.vmid }}) rootfs is over 90% full"
+          runbook: "PVE reports this for the guest's own filesystem, so no node_exporter is needed. Inside the guest: du -xh --max-depth=2 / | sort -h | tail -20"
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: '(blockstat_used / blockstat_blocks) * 100'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [90], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-pve-vm-swap
+        title: VM is swapping
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} is swapping inside the guest"
+          runbook: "The guest is short of RAM. The hypervisor's own memory figure will not show this - only the balloon driver does. QEMU guests with the agent only."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'rate(ballooninfo_mem_swapped_in[5m]) + rate(ballooninfo_mem_swapped_out[5m])'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1024], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
