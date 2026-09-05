@@ -109,6 +109,25 @@ Write your guest-state alert rules against what you see. See
 
 ---
 
+### Why the node label lives in the scrape config
+
+`node` identifies which vmagent ingested a sample, which is what tells the two
+stacks apart in their own self-metrics. It must **not** appear on PVE data:
+both nodes push to both agents and each agent replicates to both stores, so a
+`node` label there turns one series into two that never collapse — everything
+doubled in Grafana.
+
+`-remoteWrite.label` cannot do this, because it is applied *after* relabeling —
+not even an unconditional `labeldrop` removes it. `global.external_labels` in
+the scrape config can: verified against a live vmagent, it applies to scraped
+metrics only and never touches data pushed in through the influx endpoint.
+
+Since vmagent does not expand environment variables in `-promscrape.config`,
+`scripts/render-scrape.sh` substitutes `NODE_NAME` into `scrape.active.yml`,
+which is what the container actually mounts. `bootstrap-lxc.sh` runs it for you.
+
+---
+
 ## Phase 3 — Logs (~1 h)
 
 ```bash

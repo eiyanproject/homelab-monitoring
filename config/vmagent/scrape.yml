@@ -1,4 +1,18 @@
 global:
+  # Applied to SCRAPED metrics ONLY. Verified against a live vmagent: data
+  # pushed in through the influx endpoint does not receive these labels.
+  #
+  # That distinction is the entire point. `node` says which vmagent ingested a
+  # sample, which is what tells the two stacks apart in their own self-metrics.
+  # But PVE pushes to BOTH agents, and each agent replicates to BOTH stores, so
+  # if PVE data carried `node` the same sample would land as two series that
+  # never collapse - everything doubled in Grafana.
+  #
+  # -remoteWrite.label cannot be used for this: it is applied AFTER relabeling,
+  # so not even an unconditional labeldrop can remove it from pushed data.
+  external_labels:
+    node: __NODE_NAME__
+
   scrape_interval: 30s
   scrape_timeout: 10s
 

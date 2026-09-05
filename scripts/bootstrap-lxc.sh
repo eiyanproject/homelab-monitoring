@@ -168,6 +168,11 @@ EOF
 echo "==> generating alert provisioning"
 pct exec "$CTID" -- bash -lc 'sh /srv/monitoring/scripts/render-alerting.sh /srv/monitoring'
 
+# vmagent cannot expand env vars inside -promscrape.config, so the node name is
+# substituted into the scrape config here instead.
+echo "==> generating scrape config"
+pct exec "$CTID" -- bash -lc 'sh /srv/monitoring/scripts/render-scrape.sh /srv/monitoring'
+
 echo "==> starting the stack (first pull and build take a few minutes)"
 pct exec "$CTID" -- bash -lc 'cd /srv/monitoring && docker compose up -d --build'
 

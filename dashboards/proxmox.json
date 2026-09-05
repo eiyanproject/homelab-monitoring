@@ -2,11 +2,17 @@
   "uid": "hm-proxmox",
   "title": "Proxmox",
   "description": "Built for the metric names PVE's InfluxDB push actually produces, confirmed on PVE 9.2. Nodes and guests use DIFFERENT measurement families: nodes report cpustat_*/memory_*/nics_*, guests report system_*. Labels: object=nodes|lxc|qemu|storages, host=node or guest name, vmid, nodename.",
-  "tags": ["homelab", "proxmox"],
+  "tags": [
+    "homelab",
+    "proxmox"
+  ],
   "schemaVersion": 39,
   "version": 2,
   "refresh": "30s",
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timezone": "browser",
   "editable": true,
   "templating": {
@@ -15,246 +21,1150 @@
         "name": "node",
         "label": "Node",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
         "query": "label_values(cpustat_cpu{object=\"nodes\"}, host)",
         "refresh": 1,
         "multi": true,
         "includeAll": true,
-        "current": { "text": "All", "value": "$__all" }
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
       },
       {
         "name": "guest",
         "label": "Guest",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
         "query": "label_values(system_cpu{object=~\"lxc|qemu\"}, host)",
         "refresh": 1,
         "multi": true,
         "includeAll": true,
-        "current": { "text": "All", "value": "$__all" }
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
       }
     ]
   },
   "panels": [
-    { "type": "row", "title": "Nodes", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "collapsed": false, "panels": [] },
+    {
+      "type": "row",
+      "title": "Nodes",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "timeseries",
       "title": "Node CPU",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "cpustat_cpu{object=\"nodes\", host=~\"$node\"} * 100", "legendFormat": "{{host}}" }],
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "cpustat_cpu{object=\"nodes\", host=~\"$node\"} * 100",
+          "legendFormat": "{{host}}"
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0, "max": 100,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 12, "showPoints": "never", "spanNulls": true } },
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Node memory",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "memory_memused{object=\"nodes\", host=~\"$node\"} / memory_memtotal{object=\"nodes\", host=~\"$node\"} * 100", "legendFormat": "{{host}}" }],
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "memory_memused{object=\"nodes\", host=~\"$node\"} / memory_memtotal{object=\"nodes\", host=~\"$node\"} * 100",
+          "legendFormat": "{{host}}"
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0, "max": 100,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 12, "showPoints": "never", "spanNulls": true },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 85 }, { "color": "red", "value": 95 }] } },
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 85
+              },
+              {
+                "color": "red",
+                "value": 95
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Node swap in use",
       "description": "Anything sustained here means the node is genuinely short of RAM, not just caching.",
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "memory_swapused{object=\"nodes\", host=~\"$node\"}", "legendFormat": "{{host}}" }],
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "memory_swapused{object=\"nodes\", host=~\"$node\"}",
+          "legendFormat": "{{host}}"
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "bytes", "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 18, "showPoints": "never", "spanNulls": true } },
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Node load vs core count",
       "description": "Dashed line is the core count. Load above it means work is queueing.",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
       "targets": [
-        { "refId": "A", "expr": "cpustat_avg1{object=\"nodes\", host=~\"$node\"}", "legendFormat": "{{host}} 1m" },
-        { "refId": "B", "expr": "cpustat_avg15{object=\"nodes\", host=~\"$node\"}", "legendFormat": "{{host}} 15m" },
-        { "refId": "C", "expr": "cpustat_cpus{object=\"nodes\", host=~\"$node\"}", "legendFormat": "{{host}} cores" }
+        {
+          "refId": "A",
+          "expr": "cpustat_avg1{object=\"nodes\", host=~\"$node\"}",
+          "legendFormat": "{{host}} 1m"
+        },
+        {
+          "refId": "B",
+          "expr": "cpustat_avg15{object=\"nodes\", host=~\"$node\"}",
+          "legendFormat": "{{host}} 15m"
+        },
+        {
+          "refId": "C",
+          "expr": "cpustat_cpus{object=\"nodes\", host=~\"$node\"}",
+          "legendFormat": "{{host}} cores"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never", "spanNulls": true } },
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byRegexp", "options": ".*cores" },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*cores"
+            },
             "properties": [
-              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 6] } },
-              { "id": "color", "value": { "mode": "fixed", "fixedColor": "text" } }
-            ] }
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    8,
+                    6
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Node I/O wait",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "cpustat_iowait{object=\"nodes\", host=~\"$node\"} * 100", "legendFormat": "{{host}}" }],
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "cpustat_iowait{object=\"nodes\", host=~\"$node\"} * 100",
+          "legendFormat": "{{host}}"
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 18, "showPoints": "never", "spanNulls": true } },
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Node network",
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(nics_receive{object=\"nodes\", host=~\"$node\"}[5m])", "legendFormat": "{{host}} {{instance}} rx" },
-        { "refId": "B", "expr": "rate(nics_transmit{object=\"nodes\", host=~\"$node\"}[5m])", "legendFormat": "{{host}} {{instance}} tx" }
+        {
+          "refId": "A",
+          "expr": "rate(nics_receive{object=\"nodes\", host=~\"$node\"}[5m])",
+          "legendFormat": "{{host}} {{instance}} rx"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(nics_transmit{object=\"nodes\", host=~\"$node\"}[5m])",
+          "legendFormat": "{{host}} {{instance}} tx"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "Bps",
-          "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true } },
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
-
-    { "type": "row", "title": "Guests", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 }, "collapsed": false, "panels": [] },
+    {
+      "type": "row",
+      "title": "Guests",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "timeseries",
       "title": "Guest CPU",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "system_cpu{object=~\"lxc|qemu\", host=~\"$guest\"} * 100", "legendFormat": "{{host}} ({{vmid}})" }],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "system_cpu{object=~\"lxc|qemu\", host=~\"$guest\"} * 100",
+          "legendFormat": "{{host}} ({{vmid}})"
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": false } },
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Guest memory",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "system_mem{object=~\"lxc|qemu\", host=~\"$guest\"} / system_maxmem{object=~\"lxc|qemu\", host=~\"$guest\"} * 100", "legendFormat": "{{host}} ({{vmid}})" }],
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "system_mem{object=~\"lxc|qemu\", host=~\"$guest\"} / system_maxmem{object=~\"lxc|qemu\", host=~\"$guest\"} * 100",
+          "legendFormat": "{{host}} ({{vmid}})"
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0, "max": 100,
-          "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": false } },
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "showLegend": true, "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "table",
       "title": "Guest disk usage",
       "description": "system_disk / system_maxdisk. Reported by PVE for the guest's own filesystem, so no node_exporter is needed.",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "system_disk{object=~\"lxc|qemu\", host=~\"$guest\"} / system_maxdisk{object=~\"lxc|qemu\", host=~\"$guest\"} * 100", "instant": true, "format": "table" }],
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "system_disk{object=~\"lxc|qemu\", host=~\"$guest\"} / system_maxdisk{object=~\"lxc|qemu\", host=~\"$guest\"} * 100",
+          "instant": true,
+          "format": "table"
+        }
+      ],
       "transformations": [
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "node": true, "instance": true }, "renameByName": { "host": "Guest", "vmid": "VMID", "nodename": "Node", "object": "Type", "Value": "Used %" } } },
-        { "id": "sortBy", "options": { "fields": {}, "sort": [{ "field": "Used %", "desc": true }] } }
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "node": true,
+              "instance": true
+            },
+            "renameByName": {
+              "host": "Guest",
+              "vmid": "VMID",
+              "nodename": "Node",
+              "object": "Type",
+              "Value": "Used %"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Used %",
+                "desc": true
+              }
+            ]
+          }
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "decimals": 1 },
+        "defaults": {
+          "unit": "none",
+          "decimals": 1
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Used %" },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used %"
+            },
             "properties": [
-              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } },
-              { "id": "min", "value": 0 },
-              { "id": "max", "value": 100 },
-              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 80 }, { "color": "red", "value": 90 }] } }
-            ] }
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 80
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "VMID"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          }
         ]
       },
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true
+      }
     },
     {
       "type": "timeseries",
       "title": "Guest CPU pressure (PSI)",
       "description": "Share of time tasks were stalled waiting for CPU. Rises before CPU% saturates, so it warns earlier than a utilisation graph.",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "system_pressurecpusome{object=~\"lxc|qemu\", host=~\"$guest\"}", "legendFormat": "{{host}} ({{vmid}})" }],
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "system_pressurecpusome{object=~\"lxc|qemu\", host=~\"$guest\"}",
+          "legendFormat": "{{host}} ({{vmid}})"
+        }
+      ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "min": 0,
-          "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": false } },
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Guest disk I/O",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 33 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(system_diskread{object=~\"lxc|qemu\", host=~\"$guest\"}[5m])", "legendFormat": "{{host}} read" },
-        { "refId": "B", "expr": "rate(system_diskwrite{object=~\"lxc|qemu\", host=~\"$guest\"}[5m])", "legendFormat": "{{host}} write" }
+        {
+          "refId": "A",
+          "expr": "rate(system_diskread{object=~\"lxc|qemu\", host=~\"$guest\"}[5m])",
+          "legendFormat": "{{host}} read"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(system_diskwrite{object=~\"lxc|qemu\", host=~\"$guest\"}[5m])",
+          "legendFormat": "{{host}} write"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "Bps",
-          "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true } },
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Guest network",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 33 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 33
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
       "targets": [
-        { "refId": "A", "expr": "rate(system_netin{object=~\"lxc|qemu\", host=~\"$guest\"}[5m])", "legendFormat": "{{host}} in" },
-        { "refId": "B", "expr": "rate(system_netout{object=~\"lxc|qemu\", host=~\"$guest\"}[5m])", "legendFormat": "{{host}} out" }
+        {
+          "refId": "A",
+          "expr": "rate(system_netin{object=~\"lxc|qemu\", host=~\"$guest\"}[5m])",
+          "legendFormat": "{{host}} in"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(system_netout{object=~\"lxc|qemu\", host=~\"$guest\"}[5m])",
+          "legendFormat": "{{host}} out"
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "Bps",
-          "custom": { "drawStyle": "line", "lineWidth": 1.5, "fillOpacity": 8, "showPoints": "never", "spanNulls": true } },
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     },
-
-    { "type": "row", "title": "Storage", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 }, "collapsed": false, "panels": [] },
+    {
+      "type": "row",
+      "title": "Storage",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "table",
       "title": "Storage usage",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 41 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "targets": [{ "refId": "A", "expr": "system_used{object=\"storages\"} / system_total{object=\"storages\"} * 100", "instant": true, "format": "table" }],
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "system_used{object=\"storages\"} / system_total{object=\"storages\"} * 100",
+          "instant": true,
+          "format": "table"
+        }
+      ],
       "transformations": [
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "job": true, "node": true, "instance": true, "object": true }, "renameByName": { "host": "Storage", "nodename": "Node", "Value": "Used %" } } },
-        { "id": "sortBy", "options": { "fields": {}, "sort": [{ "field": "Used %", "desc": true }] } }
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "node": true,
+              "instance": true,
+              "object": true
+            },
+            "renameByName": {
+              "host": "Storage",
+              "nodename": "Node",
+              "Value": "Used %"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Used %",
+                "desc": true
+              }
+            ]
+          }
+        }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "percent", "decimals": 1 },
+        "defaults": {
+          "unit": "none",
+          "decimals": 1
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Used %" },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used %"
+            },
             "properties": [
-              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } },
-              { "id": "min", "value": 0 },
-              { "id": "max", "value": 100 },
-              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 80 }, { "color": "red", "value": 90 }] } }
-            ] }
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 80
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "VMID"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 70
+              }
+            ]
+          }
         ]
       },
-      "options": { "showHeader": true }
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "type": "row",
+      "title": "Storage hosts (node_exporter) - OMV / NAS",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Filesystem usage",
+      "description": "PVE only reports a VM's virtual disk, not the filesystems inside it. A JBOD or NAS array is invisible to the hypervisor, so this needs node_exporter in the guest. Empty until you install it.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 50
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "format": "table",
+          "expr": "(1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|ramfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|ramfs\"}) * 100"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "node": true,
+              "device": false,
+              "fstype": false
+            },
+            "renameByName": {
+              "guest": "Host",
+              "instance": "Target",
+              "mountpoint": "Mount",
+              "fstype": "FS",
+              "device": "Device",
+              "Value": "Used %"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Used %",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 80
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Free space trend",
+      "description": "The shape matters more than the number - a steady downward slope is what the \"full within 4 days\" alert projects from.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 50
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{guest}} {{mountpoint}}",
+          "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|ramfs\"}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Physical disk I/O",
+      "description": "Per underlying device. On a JBOD this is where a failing disk shows up as latency long before SMART reports anything.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "legendFormat": "{{guest}} {{device}} read",
+          "expr": "rate(node_disk_read_bytes_total[5m])"
+        },
+        {
+          "refId": "B",
+          "legendFormat": "{{guest}} {{device}} write",
+          "expr": "rate(node_disk_written_bytes_total[5m])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1.5,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     }
   ]
 }

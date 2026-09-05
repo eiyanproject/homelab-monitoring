@@ -70,11 +70,11 @@ services:
       # --- and this is what makes a peer outage lossless.
       - -remoteWrite.tmpDataPath=/vmagent-buffer
       - -remoteWrite.maxDiskUsagePerURL=${BUFFER_MAX:-2GB}
-      - -remoteWrite.label=node=${NODE_NAME}
       # Proxmox pushes OTLP to :8429/opentelemetry/v1/metrics
       - -opentelemetry.usePrometheusNaming
     volumes:
-      - ./config/vmagent/scrape.yml:/etc/vmagent/scrape.yml:ro
+      # scrape.active.yml is generated from scrape.yml by render-scrape.sh
+      - ./config/vmagent/scrape.active.yml:/etc/vmagent/scrape.yml:ro
       - ./targets:/etc/vmagent/targets:ro
       - vmagent-buffer:/vmagent-buffer
     ports:
