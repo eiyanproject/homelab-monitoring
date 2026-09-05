@@ -24,9 +24,12 @@ G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; D=$'\033[2m'; N=$'\033[0m'
 ok()   { printf "  ${G}[ok]${N}   %s\n" "$1"; }
 todo() { printf "  ${Y}[todo]${N} %s\n" "$1"; NEXT+=("$1"); }
 bad()  { printf "  ${R}[!!]${N}   %s\n" "$1"; NEXT+=("$1"); }
+# Blocked on the other node existing - real, but nothing to act on yet, so it
+# must not be offered as the next thing to do.
+wait_() { printf "  ${D}[wait]${N} %s\n" "$1"; LATER+=("$1"); }
 info() { printf "         ${D}%s${N}\n" "$1"; }
 hdr()  { printf "\n%s\n" "$1"; }
-NEXT=()
+NEXT=(); LATER=()
 
 # --- locate the mon LXC on this node ---------------------------------------
 if [[ -z "$CTID" ]]; then
@@ -60,9 +63,13 @@ else
     gs=$(pct exec "$CTID" -- docker ps --format '{{.Names}}' 2>/dev/null | grep -c '^hm-grafana')
     [[ "$gs" -eq 1 ]] && ok "Grafana running (http://${MON}:3000)" \
                       || info "Grafana stopped - lean mode. Start it from the panel."
-    curl -fsS --max-time 4 -o /dev/null "http://${MON}:8080/" 2>/dev/null \
-      && ok "control panel up (http://${MON}:8080)" \
-      || info "control panel needs auth or is unreachable"
+    # 401 means it answered and is asking for the basic-auth password, which
+    # is proof it is running - do not report that as a failure.
+    code=$(curl -s --max-time 4 -o /dev/null -w '%{http_code}' "http://${MON}:8080/" 2>/dev/null)
+    case "$code" in
+      200|401) ok "control panel up (http://${MON}:8080)" ;;
+      *)       todo "control panel not responding on ${MON}:8080 (http ${code:-none})" ;;
+    esac
   fi
 fi
 
@@ -74,7 +81,7 @@ if [[ -n "$ids" ]]; then
   ok "metric server(s): ${ids}"
   cnt=$(wc -w <<<"$ids")
   [[ "$cnt" -ge 2 ]] && ok "two targets - push survives either mon LXC dying" \
-                     || todo "only one push target: if that mon LXC dies, NO node collects. Add a second once the other node is up."
+                     || wait_ "only one push target - add a second once the other node's mon LXC exists, or if it dies NO node collects"
 else
   todo "no metric server - run setup-metric-server.sh"
 fi
@@ -159,11 +166,11 @@ for s in "$MON" "$peer"; do
   v=$(curl -fsS --max-time 4 "http://${s}:8428/api/v1/label/node/values" 2>/dev/null \
       | grep -oE 'mon-[a-zA-Z0-9-]*' | tr '\n' ' ')
   [[ -n "$v" ]] && ok "store ${s} holds data from: ${v}" \
-                || todo "store ${s} unreachable (expected until that node is built)"
+                || wait_ "store ${s} unreachable - expected until that node is built"
 done
 if [[ -n "$MON" ]]; then
   b=$(curl -fsS --max-time 4 "http://${MON}:8429/metrics" 2>/dev/null \
-      | awk '/^vmagent_remotewrite_pending_data_bytes/{s+=$2} END{print int(s)}')
+      | awk '/^vmagent_remotewrite_pending_data_bytes/{s+=$NF} END{print int(s)}')
   if [[ -n "$b" && "$b" -gt 10000000 ]]; then
     todo "replication backlog $(( b / 1048576 )) MB - the peer is not accepting writes"
   elif [[ -n "$b" ]]; then
@@ -174,10 +181,14 @@ fi
 # --- summary ---------------------------------------------------------------
 hdr "================ next ================"
 if [[ ${#NEXT[@]} -eq 0 ]]; then
-  printf "  ${G}Everything on this node is done.${N}\n\n"
+  printf "  ${G}Nothing left to do on this node.${N}\n"
 else
-  printf "  %d thing(s) outstanding. Start here:\n\n" "${#NEXT[@]}"
+  printf "  ${Y}Do this next:${N}\n"
   printf "  ${Y}->${N} %s\n" "${NEXT[0]}"
   [[ ${#NEXT[@]} -gt 1 ]] && printf "     %s\n" "${NEXT[@]:1}"
-  echo
 fi
+if [[ ${#LATER[@]} -gt 0 ]]; then
+  printf "\n  ${D}Waiting on the other node - nothing to act on yet:${N}\n"
+  printf "  ${D}   %s${N}\n" "${LATER[@]}"
+fi
+echo
