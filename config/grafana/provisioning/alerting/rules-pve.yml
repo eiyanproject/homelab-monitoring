@@ -340,6 +340,40 @@ groups:
     folder: Homelab Alerts
     interval: 1m
     rules:
+      - uid: hm-pve-old-snapshot
+        title: Forgotten snapshot
+        condition: B
+        for: 1h
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "Snapshot '{{ $labels.snapshot }}' on {{ $labels.guest }} (vmid {{ $labels.vmid }}) is over 14 days old"
+          runbook: "Snapshots grow as blocks diverge from the snapshot point, and on thin-LVM a full pool takes guests read-only. Delete it once you no longer need the rollback:  pct delsnapshot <vmid> <name>   (or qm delsnapshot for a VM). Needs scripts/report-snapshots.sh in cron on each node."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'pve_snapshot_age_seconds > 14 * 86400'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
       - uid: hm-pve-storage-full
         title: Storage nearly full
         condition: B

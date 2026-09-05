@@ -181,6 +181,31 @@ flags are wrong.
 
 ---
 
+### Snapshots you take before changes
+
+Taking a snapshot before a change is the right habit, and forgetting it is the
+failure mode: snapshots grow as blocks diverge, and a full thin-LVM pool takes
+guests read-only.
+
+Rather than deleting safety nets on a timer — which fails precisely when you
+need one — report their age and alert on it:
+
+```bash
+(crontab -l 2>/dev/null | grep -v report-snapshots; echo "0 * * * * /srv/homelab-monitoring/scripts/report-snapshots.sh --target 192.168.0.200 --quiet") | crontab -
+```
+
+That publishes `pve_snapshot_age_seconds` and `pve_snapshot_count`, and the
+**Forgotten snapshot** rule warns at 14 days. Nothing is ever deleted.
+
+If you do want automatic pruning, it is opt-in, only touches names matching
+`--match`, and refuses to run without an explicit age:
+
+```bash
+./report-snapshots.sh --target 192.168.0.200 --prune --older-than 30 --match 'pre-*'
+```
+
+---
+
 ## Phase 5 — Your own services (~2 h)
 
 See [SERVICE-CONTRACT.md](SERVICE-CONTRACT.md). Retrofit one service, then put
