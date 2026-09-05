@@ -129,7 +129,7 @@ def checker():
                     changed = True
                     notify(
                         "DOWN: %s" % node,
-                        "No heartbeat from %s for %d minutes.\n"
+                        "No heartbeat from %s for %s.\n"
                         "The node, its monitoring stack, the power or the network is gone.\n"
                         "Nothing inside the cluster can tell you this - that is why it runs out here."
                         % (node, human_age(age)),
