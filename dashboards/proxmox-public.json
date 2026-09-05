@@ -1,7 +1,7 @@
 {
   "uid": "hm-proxmox-public",
   "title": "Homelab - Proxmox Cluster",
-  "description": "Public read-only copy of the Proxmox dashboard. Generated from proxmox.json with the $node/$guest variables removed, because Grafana shared dashboards cannot render template variables. Edit proxmox.json, then regenerate.",
+  "description": "Public read-only copy of the Proxmox dashboard. Generated from proxmox.json with the $node/$guest variables removed, rows flattened and panel ids assigned - shared dashboards support none of those being absent. Edit proxmox.json, then regenerate.",
   "tags": [
     "homelab",
     "proxmox"
@@ -25,7 +25,8 @@
         "y": 0
       },
       "collapsed": false,
-      "panels": []
+      "panels": [],
+      "id": 1
     },
     {
       "type": "timeseries",
@@ -72,7 +73,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 2
     },
     {
       "type": "timeseries",
@@ -136,7 +138,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 3
     },
     {
       "type": "timeseries",
@@ -183,7 +186,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 4
     },
     {
       "type": "timeseries",
@@ -266,7 +270,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 5
     },
     {
       "type": "timeseries",
@@ -313,7 +318,8 @@
           "sort": "desc"
         }
       },
-      "description": "cpustat_wait is the instantaneous 0-1 ratio. cpustat_iowait is a cumulative counter and must not be used here."
+      "description": "cpustat_wait is the instantaneous 0-1 ratio. cpustat_iowait is a cumulative counter and must not be used here.",
+      "id": 6
     },
     {
       "type": "timeseries",
@@ -363,7 +369,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 7
     },
     {
       "type": "row",
@@ -375,7 +382,8 @@
         "y": 15
       },
       "collapsed": false,
-      "panels": []
+      "panels": [],
+      "id": 8
     },
     {
       "type": "timeseries",
@@ -425,7 +433,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 9
     },
     {
       "type": "timeseries",
@@ -476,7 +485,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 10
     },
     {
       "type": "table",
@@ -610,7 +620,8 @@
       },
       "options": {
         "showHeader": true
-      }
+      },
+      "id": 11
     },
     {
       "type": "timeseries",
@@ -657,7 +668,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 12
     },
     {
       "type": "timeseries",
@@ -707,7 +719,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 13
     },
     {
       "type": "timeseries",
@@ -757,7 +770,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 14
     },
     {
       "type": "row",
@@ -769,7 +783,8 @@
         "y": 40
       },
       "collapsed": false,
-      "panels": []
+      "panels": [],
+      "id": 15
     },
     {
       "type": "table",
@@ -901,7 +916,8 @@
       },
       "options": {
         "showHeader": true
-      }
+      },
+      "id": 16
     },
     {
       "type": "row",
@@ -913,7 +929,8 @@
         "y": 49
       },
       "collapsed": false,
-      "panels": []
+      "panels": [],
+      "id": 17
     },
     {
       "type": "table",
@@ -1029,7 +1046,8 @@
       },
       "options": {
         "showHeader": true
-      }
+      },
+      "id": 18
     },
     {
       "type": "timeseries",
@@ -1075,7 +1093,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 19
     },
     {
       "type": "timeseries",
@@ -1126,7 +1145,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "id": 20
     }
   ]
 }
