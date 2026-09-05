@@ -8,20 +8,22 @@
 #   ./add-dashboard-path.sh --token 03bd...36f7 --yes            # apply
 #   ./add-dashboard-path.sh --token 03bd...36f7 --path /demo --yes
 #
-# It inserts a handle block and does NOT touch the existing reverse_proxy.
-# Caddy evaluates `handle` before a bare `reverse_proxy`, and a matched handle
-# is terminal, so /homelab is served by the new block and every other path
-# falls through to what is already there.
+# redir, not rewrite. A rewrite is invisible to the browser, and Grafana is a
+# single-page app that routes on the browser's URL - it receives the correct
+# HTML and then renders "Page not found" because the address bar still says
+# /homelab. So the clean path is what you share; the token appears once the
+# visitor lands. Only an iframe wrapper avoids that, and it needs
+# allow_embedding turned on across all of Grafana.
 #
-# rewrite, not redir: the address bar stays on /homelab and the token never
-# becomes visible. Grafana's page sets <base href="/">, so its assets resolve
-# to /public/build/... whatever path the request arrived on.
+# Re-running replaces the block it previously wrote, so changing --token or
+# --path is just another run.
 #
-# Access still challenges /homelab until you add it as a Bypass row - see the
+# Access still challenges the path until you add it as a Bypass row - see the
 # note this prints at the end. Caddy never sees the request otherwise.
 set -euo pipefail
 
 TOKEN=""; SITE=""; PATH_PREFIX="/homelab"; CADDYFILE="/etc/caddy/Caddyfile"; CONFIRM="no"
+MARKER="# managed by add-dashboard-path.sh"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -32,7 +34,7 @@ while [[ $# -gt 0 ]]; do
     --site)      SITE="$2"; shift 2 ;;
     --caddyfile) CADDYFILE="$2"; shift 2 ;;
     --yes)       CONFIRM="yes"; shift ;;
-    -h|--help)   sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help)   sed -n '2,23p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -44,45 +46,23 @@ done
 command -v caddy >/dev/null || die "caddy not on PATH - is this the right host?"
 [[ $EUID -eq 0 ]] || die "run as root"
 
-# Find the site block. A site address can carry a scheme (http://host, which is
-# what a tunnel-terminated setup looks like) and can list several addresses, so
-# match the whole opening line rather than a bare hostname. Without --site, take
-# the one mentioning grafana; guessing between several would be worse than
-# refusing.
+# A site address can carry a scheme (http://host, which is what a
+# tunnel-terminated setup looks like) and can list several addresses, so match
+# the whole opening line rather than a bare hostname.
 MATCH="${SITE:-grafana}"
 mapfile -t CANDIDATES < <(
-  grep -E '^[^[:space:]#].*\{[[:space:]]*$' "$CADDYFILE"   | grep -F -- "$MATCH"   | sed 's/[[:space:]]*{[[:space:]]*$//'   | awk '{print $1}' | sort -u
+  grep -E '^[^[:space:]#].*\{[[:space:]]*$' "$CADDYFILE" | grep -F -- "$MATCH" \
+  | sed 's/[[:space:]]*{[[:space:]]*$//' | awk '{print $1}' | sort -u
 )
-(( ${#CANDIDATES[@]} == 1 ))   || die "found ${#CANDIDATES[@]} site blocks matching '${MATCH}' in ${CADDYFILE}; pass --site explicitly"
+(( ${#CANDIDATES[@]} == 1 )) \
+  || die "found ${#CANDIDATES[@]} site blocks matching '${MATCH}' in ${CADDYFILE}; pass --site explicitly"
 SITE="${CANDIDATES[0]}"
 HOST="${SITE#*://}"
 
-# Reuse the site's existing upstream verbatim rather than asking for it again.
-UPSTREAM_LINE=$(awk -v site="$SITE" '
-  index($0, site) && /\{[[:space:]]*$/ { depth=1; inblock=1; next }
-  inblock {
-    depth += gsub(/\{/, "{"); depth -= gsub(/\}/, "}")
-    if (depth <= 0) { inblock=0; next }
-    if ($1 == "reverse_proxy") { sub(/^[[:space:]]+/, ""); print; exit }
-  }' "$CADDYFILE")
-
-[[ -n "$UPSTREAM_LINE" ]] || die "no single-line reverse_proxy found inside the '${SITE}' block - add the handle block by hand"
-[[ "$UPSTREAM_LINE" != *"{"* ]] || die "the reverse_proxy in '${SITE}' opens a block; too varied to edit safely - add the handle block by hand"
-
-if grep -q "public-dashboards/${TOKEN}" "$CADDYFILE"; then
-  echo "  ${CADDYFILE} already routes this token. Nothing to do."
-  exit 0
-fi
-
-BLOCK=$(cat <<EOF
-    # Clean URL for the public Grafana dashboard. handle runs before the bare
-    # reverse_proxy below and is terminal, so only this path is affected.
+BLOCK="    ${MARKER} - do not edit by hand, re-run the script
     handle ${PATH_PREFIX}* {
-        rewrite * /public-dashboards/${TOKEN}
-        ${UPSTREAM_LINE}
-    }
-EOF
-)
+        redir * /public-dashboards/${TOKEN}
+    }"
 
 cat <<PLAN
 
@@ -90,10 +70,10 @@ cat <<PLAN
   ----
   caddyfile   ${CADDYFILE}
   site        ${SITE}
-  upstream    ${UPSTREAM_LINE}
-  public URL  https://${HOST}${PATH_PREFIX}
+  public URL  https://${HOST}${PATH_PREFIX}   ->   /public-dashboards/${TOKEN}
 
-  To insert at the top of the site block:
+  Any previous block for ${PATH_PREFIX} is removed first. To insert at the top
+  of the site block:
 
 ${BLOCK}
 
@@ -109,9 +89,32 @@ cp -a "$CADDYFILE" "$BACKUP"
 echo "==> backed up to ${BACKUP}"
 
 TMP=$(mktemp)
-awk -v site="$SITE" -v block="$BLOCK" '
-  !done && index($0, site) && /\{[[:space:]]*$/ { print; print block; done=1; next }
-  { print }
+# Drop any existing handle block for this path, along with the comment lines
+# immediately above it, then insert the new one. Comments are buffered rather
+# than printed straight out, so the ones belonging to a removed block go with it.
+awk -v site="$SITE" -v path="$PATH_PREFIX" -v block="$BLOCK" '
+  function flush(  i) { for (i = 1; i <= nbuf; i++) print buf[i]; nbuf = 0 }
+  skipping {
+    depth += gsub(/\{/, "{"); depth -= gsub(/\}/, "}")
+    if (depth <= 0) skipping = 0
+    next
+  }
+  /^[[:space:]]*#/ { buf[++nbuf] = $0; next }
+  {
+    # Compare the matcher as a plain string. Building a regex out of a
+    # user-supplied path means escaping it, and getting that wrong silently
+    # matches the wrong block.
+    line = $0; sub(/^[[:space:]]+/, "", line)
+    if (line ~ /^handle[[:space:]]/ && line ~ /\{[[:space:]]*$/) {
+      split(line, a, /[[:space:]]+/); m = a[2]; sub(/\*$/, "", m)
+      if (m == path) { nbuf = 0; depth = 1; skipping = 1; next }
+    }
+  }
+  { flush()
+    print
+    if (!done && index($0, site) && /\{[[:space:]]*$/) { print block; done = 1 }
+  }
+  END { flush() }
 ' "$CADDYFILE" > "$TMP"
 
 grep -q "public-dashboards/${TOKEN}" "$TMP" || { rm -f "$TMP"; die "insertion produced no change - left ${CADDYFILE} alone"; }
@@ -121,7 +124,6 @@ rm -f "$TMP"
 echo "==> validating"
 if ! caddy validate --adapter caddyfile --config "$CADDYFILE" >/dev/null 2>&1; then
   cp -a "$BACKUP" "$CADDYFILE"
-  caddy validate --adapter caddyfile --config "$CADDYFILE" >/dev/null 2>&1 || true
   die "config did not validate; restored ${BACKUP} and changed nothing"
 fi
 echo "    ok"
@@ -143,9 +145,9 @@ cat <<NEXT
   ${PATH_PREFIX} before Caddy ever sees the request.
 
   Then check it from somewhere with no Access session:
-      curl -s -o /dev/null -w '%{http_code}\n' https://${HOST}${PATH_PREFIX}
+      curl -sI https://${HOST}${PATH_PREFIX} | head -1
 
-  Rollback at any point:
+  Rollback:
       cp -a ${BACKUP} ${CADDYFILE} && systemctl reload caddy
 
 NEXT
