@@ -1,0 +1,28 @@
+[Unit]
+Description=Homelab deadman watchdog
+Documentation=https://github.com/eiyanproject/homelab-monitoring
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hm-watchdog
+Group=hm-watchdog
+EnvironmentFile=/etc/hm-watchdog/watchdog.env
+ExecStart=/usr/bin/python3 /opt/hm-watchdog/watchdog.py
+Restart=always
+RestartSec=10
+
+# This thing exists to notice failure, so it must not be a source of it.
+StateDirectory=hm-watchdog
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

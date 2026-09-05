@@ -27,6 +27,7 @@ env_get() {
 }
 
 NTFY=$(env_get NTFY_URL)
+NTFY_TOKEN=$(env_get NTFY_TOKEN)
 DISCORD=$(env_get DISCORD_WEBHOOK_URL)
 TG_TOKEN=$(env_get TELEGRAM_BOT_TOKEN)
 TG_CHAT=$(env_get TELEGRAM_CHAT_ID)
@@ -62,6 +63,12 @@ fi
     echo "        settings:"
     echo "          url: ${NTFY}"
     echo "          httpMethod: POST"
+    # A self-hosted ntfy set to deny-all needs a token. Without this the topic
+    # name would be the only secret, and a leaked one lets anyone read alerts.
+    if [ -n "$NTFY_TOKEN" ]; then
+      echo "          authorization_scheme: Bearer"
+      echo "          authorization_credentials: ${NTFY_TOKEN}"
+    fi
   fi
   if [ "$HAVE_TG" = yes ]; then
     echo "      - uid: hm-crit-telegram"

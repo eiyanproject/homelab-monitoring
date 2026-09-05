@@ -36,6 +36,11 @@ GRAFANA_PORT = os.environ.get("GRAFANA_PORT", "3000")
 GRAFANA_API = os.environ.get("GRAFANA_API", "http://grafana:3000")
 GRAFANA_ADMIN_USER = os.environ.get("GRAFANA_ADMIN_USER", "admin")
 GRAFANA_ADMIN_PASSWORD = os.environ.get("GRAFANA_ADMIN_PASSWORD", "")
+# Deadman heartbeat to a watchdog OUTSIDE the homelab. This service is the
+# right sender: it is the one component that is always running, so if it stops
+# reporting the stack really is down.
+HEARTBEAT_URL = os.environ.get("HEARTBEAT_URL", "").rstrip("/")
+HEARTBEAT_INTERVAL = int(os.environ.get("HEARTBEAT_INTERVAL", "60"))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 # The panel never acts on itself - stopping the control service from the
@@ -166,6 +171,34 @@ def _mem_refresh_loop():
                     fresh[name.strip()] = usage.split("/")[0].strip()
             MEM_CACHE, MEM_CACHE_AT = fresh, time.time()
         time.sleep(20)
+
+
+def _heartbeat_loop():
+    """
+    Tell the outside watchdog we are alive, with a little context.
+
+    Deliberately never raises: a watchdog that is unreachable must not affect
+    the panel, and the whole point is that its silence is the signal.
+    """
+    url = HEARTBEAT_URL + "/beat/" + urllib.parse.quote(NODE_NAME or "unknown")
+    while True:
+        try:
+            ps = docker_ps()
+            body = json.dumps(
+                {
+                    "node": NODE_NAME,
+                    "peer": PEER_IP,
+                    "services_up": sum(1 for s in ps.values() if s.get("state") == "running"),
+                    "services_total": len(MANAGED),
+                    "alerting": alerting_mode(),
+                }
+            ).encode("utf-8")
+            req = urllib.request.Request(url, data=body, method="POST")
+            req.add_header("Content-Type", "application/json")
+            urllib.request.urlopen(req, timeout=15).close()
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(HEARTBEAT_INTERVAL)
 
 
 def docker_mem():
@@ -770,5 +803,10 @@ if __name__ == "__main__":
     if not CONTROL_PASSWORD:
         print("WARNING: CONTROL_PASSWORD is empty - the panel is unauthenticated.")
     threading.Thread(target=_mem_refresh_loop, daemon=True).start()
+    if HEARTBEAT_URL:
+        print("heartbeat -> %s every %ds" % (HEARTBEAT_URL, HEARTBEAT_INTERVAL))
+        threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    else:
+        print("HEARTBEAT_URL not set - nothing outside will notice if this node dies")
     print("control panel on :%d (project %s, node %s)" % (PORT, PROJECT_DIR, NODE_NAME))
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

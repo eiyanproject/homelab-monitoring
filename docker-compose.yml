@@ -148,6 +148,8 @@ services:
       GRAFANA_API: http://grafana:3000
       GRAFANA_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
+      HEARTBEAT_INTERVAL: ${HEARTBEAT_INTERVAL:-60}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PROJECT_DIR:-/srv/monitoring}:/srv/monitoring
