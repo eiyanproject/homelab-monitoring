@@ -205,6 +205,44 @@ groups:
                   reducer: {params: [], type: last}
                   type: query
 
+      - uid: hm-pve-guest-stopped
+        title: Guest stopped unexpectedly
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.host }} (vmid {{ $labels.vmid }}) on {{ $labels.nodename }} has stopped"
+          runbook: "Fires only for a guest that was running within the last 2 hours, so anything you deliberately left off never alerts, and a deliberate shutdown self-clears after 2h. If a guest stopped on its own, check the node's memory - the OOM killer picks its own victim. NOTE: system_status is useless here; PVE sends it as a string, which VictoriaMetrics stores as a constant 0 for running and stopped guests alike. system_uptime is the real signal."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 7200, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              # Was up within 2h, is not up now. Written this way round so the
+              # result carries a positive value (the previous uptime) - the
+              # obvious `system_uptime == 0 and ...` returns 0, which no
+              # greater-than threshold can ever match.
+              expr: 'max_over_time(system_uptime{object=~"lxc|qemu"}[2h]) > 0 unless system_uptime{object=~"lxc|qemu"} > 0'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 7200, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
       - uid: hm-pve-guest-disk-trend
         title: Guest disk will be full within 4 days
         condition: B

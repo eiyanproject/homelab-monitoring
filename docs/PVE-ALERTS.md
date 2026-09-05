@@ -62,34 +62,38 @@ disk is *starting* to struggle, well before any utilisation graph saturates.
 
 ## The guest-stopped rule
 
-`system_status` exists for both `lxc` and `qemu`, which is the right signal —
-but PVE's status is a *string* (`running` / `stopped`), and how VictoriaMetrics
-stored it decides the rule. Check with:
+**Do not use `system_status`.** It exists for every guest, but PVE sends the
+status as a *string* (`running` / `stopped`) and VictoriaMetrics cannot store a
+string as a value — it lands as a constant `0` for running and stopped guests
+alike. A rule built on it looks reasonable and never fires.
 
-```bash
-curl -s 'http://<mon-ip>:8428/api/v1/query'   --data-urlencode 'query=system_status{object=~"lxc|qemu"}' | head -c 600
-```
+`system_uptime` is the real signal: `0` when stopped, seconds when running.
+PVE pushes a record for stopped guests too, so the series is always present.
 
-**If it returns numeric values** (e.g. `1` for running), alert on the
-transition, so a guest you deliberately left off never alerts:
-
-```promql
-system_status{object=~"lxc|qemu"} == 0
-  and max_over_time(system_status{object=~"lxc|qemu"}[2h]) == 1
-```
-
-**If it returns nothing, or every guest reads `0`**, the string was not stored
-as a usable value. Then detect disappearance instead — seen in the last 2h,
-absent for the last 5m:
+The shipped rule (`rules-pve.yml`, `hm-pve-guest-stopped`) alerts on the
+**transition**:
 
 ```promql
-max by (vmid, host, nodename) (max_over_time(system_cpu{object=~"lxc|qemu"}[2h]))
+max_over_time(system_uptime{object=~"lxc|qemu"}[2h]) > 0
 unless
-max by (vmid, host, nodename) (last_over_time(system_cpu{object=~"lxc|qemu"}[5m]))
+system_uptime{object=~"lxc|qemu"} > 0
 ```
 
-Either way, tag guests you toggle often with `noalert` in Proxmox and exclude
-them, so the rule needs no maintenance as your guest list changes.
+Read as: *was up at some point in the last 2 hours, is not up now.*
+
+| Guest | Fires? |
+| --- | --- |
+| Running | no |
+| Stopped for weeks | no — nothing you deliberately left off ever alerts |
+| Just stopped | **yes**, and self-clears 2 hours later |
+
+Written in that order deliberately. The obvious form,
+`system_uptime == 0 and max_over_time(...) > 0`, returns the value `0`, and no
+greater-than threshold can ever match zero — so it would provision cleanly and
+silently never fire. This form returns the previous uptime, which is positive.
+
+For guests you toggle often, tag them `noalert` in Proxmox and exclude them, so
+the rule needs no maintenance as your guest list changes.
 
 ## Backups
 
