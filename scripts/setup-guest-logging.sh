@@ -16,7 +16,7 @@
 # so each node holds its own guests' logs - see docs/DEPLOY.md.
 set -euo pipefail
 
-COLLECTOR=""; PORT="29514"; CONFIRM="no"; ONLY=""; INCLUDE_HOST="yes"
+COLLECTOR=""; PORT="29514"; CONFIRM="no"; ONLY=""; INCLUDE_HOST="yes"; HOST_COLLECTOR=""
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -26,6 +26,11 @@ while [[ $# -gt 0 ]]; do
     --port)      PORT="$2"; shift 2 ;;
     --only)      ONLY="$2"; shift 2 ;;
     --no-host)   INCLUDE_HOST="no"; shift ;;
+    # Send THIS host's own journal somewhere else - normally the other node.
+    # A node that dies takes its collector with it, so its own last log lines
+    # are stranded on the machine that died. Cross-shipping puts them on the
+    # survivor, which is the difference between diagnosing a crash and guessing.
+    --host-collector) HOST_COLLECTOR="$2"; shift 2 ;;
     --yes)       CONFIRM="yes"; shift ;;
     -h|--help)   sed -n '2,17p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
