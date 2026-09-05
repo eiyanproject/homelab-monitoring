@@ -37,6 +37,20 @@ command -v pct >/dev/null || die "pct not found - run this on the Proxmox host"
 
 CONF_LINE="*.* @@${COLLECTOR}:${PORT};RSYSLOG_SyslogProtocol23Format"
 
+# imklog reads the kernel ring buffer, which an unprivileged LXC does not have.
+# rsyslog then logs "activation of module imklog failed" at ERROR level on every
+# start, in every guest - which would pollute `level:error` searches forever.
+# Harmless to disable: nothing in a container can read the host's kernel log.
+# Left alone on the PVE host itself, where it is real and useful.
+disable_imklog() {
+  pct exec "$1" -- sh -c '
+    for f in /etc/rsyslog.conf /etc/rsyslog.d/*.conf; do
+      [ -f "$f" ] || continue
+      sed -i -e "s/^module(load=\"imklog\")/#&/"              -e "s/^\$ModLoad imklog/#&/" "$f" 2>/dev/null || true
+    done
+  ' 2>/dev/null || true
+}
+
 if [[ -n "$ONLY" ]]; then
   IDS=$(tr ',' ' ' <<<"$ONLY")
 else
@@ -80,6 +94,7 @@ for id in $IDS; do
       apt-get update -qq && apt-get install -y -qq rsyslog
     ' || { echo "    install failed, skipping"; continue; }
     pct exec "$id" -- sh -c "printf '%s\n' '${CONF_LINE}' > /etc/rsyslog.d/90-victorialogs.conf"
+    disable_imklog "$id"
     pct exec "$id" -- sh -c 'systemctl restart rsyslog' \
       || echo "    warning: could not restart rsyslog"
 
@@ -89,6 +104,7 @@ for id in $IDS; do
       apk add --no-cache rsyslog
     ' || { echo "    install failed, skipping"; continue; }
     pct exec "$id" -- sh -c "printf '%s\n' '${CONF_LINE}' > /etc/rsyslog.d/90-victorialogs.conf"
+    disable_imklog "$id"
     pct exec "$id" -- sh -c 'rc-update add rsyslog default >/dev/null 2>&1; rc-service rsyslog restart' \
       || echo "    warning: could not restart rsyslog"
 
