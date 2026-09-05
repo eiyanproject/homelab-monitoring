@@ -44,18 +44,18 @@ done
 command -v caddy >/dev/null || die "caddy not on PATH - is this the right host?"
 [[ $EUID -eq 0 ]] || die "run as root"
 
-# Find the site block. Without --site, take the one whose address mentions
-# grafana; guessing between several sites would be worse than refusing.
-if [[ -z "$SITE" ]]; then
-  mapfile -t CANDIDATES < <(grep -oE '^[A-Za-z0-9_.*-]*grafana[A-Za-z0-9_.*-]*[^{]*\{' "$CADDYFILE" \
-                            | sed 's/[[:space:]]*{$//' | awk '{print $1}' | sort -u)
-  (( ${#CANDIDATES[@]} == 1 )) \
-    || die "found ${#CANDIDATES[@]} site blocks matching 'grafana'; pass --site explicitly"
-  SITE="${CANDIDATES[0]}"
-fi
-
-grep -qE "^[[:space:]]*${SITE//./\.}[[:space:]]*(,|\{)" "$CADDYFILE" \
-  || die "no site block for '${SITE}' in ${CADDYFILE}"
+# Find the site block. A site address can carry a scheme (http://host, which is
+# what a tunnel-terminated setup looks like) and can list several addresses, so
+# match the whole opening line rather than a bare hostname. Without --site, take
+# the one mentioning grafana; guessing between several would be worse than
+# refusing.
+MATCH="${SITE:-grafana}"
+mapfile -t CANDIDATES < <(
+  grep -E '^[^[:space:]#].*\{[[:space:]]*$' "$CADDYFILE"   | grep -F -- "$MATCH"   | sed 's/[[:space:]]*{[[:space:]]*$//'   | awk '{print $1}' | sort -u
+)
+(( ${#CANDIDATES[@]} == 1 ))   || die "found ${#CANDIDATES[@]} site blocks matching '${MATCH}' in ${CADDYFILE}; pass --site explicitly"
+SITE="${CANDIDATES[0]}"
+HOST="${SITE#*://}"
 
 # Reuse the site's existing upstream verbatim rather than asking for it again.
 UPSTREAM_LINE=$(awk -v site="$SITE" '
@@ -91,7 +91,7 @@ cat <<PLAN
   caddyfile   ${CADDYFILE}
   site        ${SITE}
   upstream    ${UPSTREAM_LINE}
-  public URL  https://${SITE}${PATH_PREFIX}
+  public URL  https://${HOST}${PATH_PREFIX}
 
   To insert at the top of the site block:
 
@@ -137,13 +137,13 @@ cat <<NEXT
   Cloudflare Zero Trust > Access controls > Applications > your
   "Grafana public dashboards" app - add a hostname row:
 
-      ${SITE}   path: ${PATH_PREFIX#/}
+      ${HOST}   path: ${PATH_PREFIX#/}
 
   on the same Bypass / Everyone policy. Until then Access challenges
   ${PATH_PREFIX} before Caddy ever sees the request.
 
   Then check it from somewhere with no Access session:
-      curl -s -o /dev/null -w '%{http_code}\n' https://${SITE}${PATH_PREFIX}
+      curl -s -o /dev/null -w '%{http_code}\n' https://${HOST}${PATH_PREFIX}
 
   Rollback at any point:
       cp -a ${BACKUP} ${CADDYFILE} && systemctl reload caddy
