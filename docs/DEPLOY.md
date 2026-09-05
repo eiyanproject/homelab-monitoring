@@ -44,7 +44,7 @@ have already watched the mechanism the whole design rests on.
 Run **on each Proxmox host**, pointing at that host's *own* mon LXC:
 
 ```bash
-./setup-metric-server.sh --target 192.168.0.200        # plan
+./setup-metric-server.sh --target 192.168.0.200        # plan (influx by default)
 ./setup-metric-server.sh --target 192.168.0.200 --yes  # apply
 ```
 
@@ -52,31 +52,40 @@ The script first prints your build's actual metric-server parameters
 (`pvesh usage /cluster/metrics/server/{id} -v`). If they do not match the flags
 it intends to use, configure it in the web UI instead and re-run to verify.
 
-### If OTLP fails the connection test
+### Why InfluxDB and not OpenTelemetry
 
-PVE runs a connection test before saving, so this is a receiver rejection, not
-a config error:
+The script defaults to `--mode influx`. OTLP looks like the obvious choice on
+PVE 9 and it cannot work here:
 
 ```
-Connection test failed: 400 Bad Request at PVE/Status/OpenTelemetry.pm
+Connection test failed: 400 Bad Request at PVE/Status/OpenTelemetry.pm:707
 ```
 
-VictoriaMetrics accepts OTLP over **protobuf only**. Confirm what it saw:
+PVE runs a connection test before saving, so that is the *receiver* rejecting
+the payload. `/usr/share/perl5/PVE/Status/OpenTelemetry.pm` sends
+`'Content-Type' => 'application/json'` and contains no protobuf path, even in
+its uncompressed branch. VictoriaMetrics logs the other half:
 
-```bash
-pct exec 200 -- docker logs hm-vmagent 2>&1 | grep -i opentelemetry | tail -5
+```
+json encoding isn't supported for opentelemetry format. Use protobuf encoding
 ```
 
-If that says `json encoding isn't supported for opentelemetry format`, this PVE
-build emits OTLP/JSON and the two cannot talk. Use InfluxDB line protocol —
-same agentless push, natively ingested by vmagent, tags become labels:
+JSON-only sender, protobuf-only receiver. No flag bridges it. The alternatives
+are an OpenTelemetry Collector purely to transcode (~50–80 MB per node), or
+PVE's InfluxDB plugin — same agentless push, natively ingested, zero extra
+containers. We use the latter.
 
-```bash
-./setup-metric-server.sh --target 192.168.0.200 --mode influx --yes
-```
+`--mode otlp` is kept only for a future PVE that adds protobuf, or if you point
+it at a collector yourself.
 
-Metric names differ between the modes: Influx produces
-`<measurement>_<field>`, so confirm the real names before writing alert rules.
+### Metric names differ from every guide
+
+Influx names metrics `<measurement>_<field>` — `cpustat_cpu`, `memory_used` —
+with tags as labels and `db="proxmox"`. These match neither the OTLP names nor
+the `pve_*` series that dashboards 10347/24550 expect, so **dashboard 23855
+will not work with this push**. For dashboard-compatible `pve_*` metrics, add
+`prometheus-pve-exporter` alongside (see [PVE-ALERTS.md](PVE-ALERTS.md)); it
+also gives you a real `up` series.
 
 ### Find the real metric names
 

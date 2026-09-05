@@ -4,24 +4,27 @@
 #
 # RUN THIS ON THE PROXMOX HOST, once per node.
 #
-#   ./setup-metric-server.sh --target 192.168.0.200                # plan only
-#   ./setup-metric-server.sh --target 192.168.0.200 --yes          # apply
-#   ./setup-metric-server.sh --target 192.168.0.200 --mode influx --yes
+#   ./setup-metric-server.sh --target 192.168.0.200              # plan only
+#   ./setup-metric-server.sh --target 192.168.0.200 --yes        # apply
+#   ./setup-metric-server.sh --target 192.168.0.200 --mode otlp  # see below
 #
 # Two push modes:
-#   otlp    (default) OpenTelemetry. Richer, but VictoriaMetrics accepts OTLP
-#           over protobuf ONLY. If your PVE build sends OTLP/JSON, its
-#           connection test fails with 400 and you must use influx instead.
-#   influx  InfluxDB line protocol. Same agentless push model, natively
-#           ingested by vmagent on /write. Tags become labels and a
-#           measurement's fields become <measurement>_<field> metric names.
+#   influx  (default) InfluxDB line protocol, natively ingested by vmagent on
+#           /write. Tags become labels; a measurement's fields become
+#           <measurement>_<field> metric names.
+#   otlp    OpenTelemetry. DOES NOT WORK with VictoriaMetrics on PVE 9.2:
+#           /usr/share/perl5/PVE/Status/OpenTelemetry.pm sends
+#           'Content-Type' => 'application/json' and has no protobuf path at
+#           all, while VictoriaMetrics accepts OTLP over protobuf only. PVE's
+#           connection test fails with 400 Bad Request. Kept only in case a
+#           later PVE adds protobuf, or you point it at an OTel Collector.
 #
 # Each node should point at its OWN local mon LXC, never the peer's: local
 # collection has no network dependency, so a link failure between nodes cannot
 # lose data - the local agent keeps collecting and buffering.
 set -euo pipefail
 
-TARGET=""; PORT="8429"; NAME="vmagent"; CONFIRM="no"; MODE="otlp"
+TARGET=""; PORT="8429"; NAME="vmagent"; CONFIRM="no"; MODE="influx"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -134,14 +137,31 @@ fi
 
 echo
 echo "==> configured. verifying data arrives (up to 90s)..."
+# Influx mode names metrics <measurement>_<field> (cpustat_cpu, memory_used),
+# so 'proxmox' appears only as the db LABEL and never in the metric name.
+# Check the right thing per mode, or this always times out.
+if [[ "$MODE" == "influx" ]]; then
+  CHECK_URL="http://${TARGET}:8428/api/v1/label/db/values"
+  CHECK_PAT='proxmox'
+else
+  CHECK_URL="http://${TARGET}:8428/api/v1/label/__name__/values"
+  CHECK_PAT='proxmox|pve'
+fi
+
+ARRIVED=no
 for i in $(seq 1 18); do
-  if curl -fsS "http://${TARGET}:8428/api/v1/label/__name__/values" 2>/dev/null \
-      | grep -qE 'proxmox|pve'; then
+  if curl -fsS "$CHECK_URL" 2>/dev/null | grep -qE "$CHECK_PAT"; then
     echo "    metrics are arriving."
+    ARRIVED=yes
     break
   fi
   sleep 5
 done
+
+if [[ "$ARRIVED" != "yes" ]]; then
+  echo "    nothing yet. PVE pushes on its own timer, so give it a few minutes,"
+  echo "    then check: curl -s ${CHECK_URL}"
+fi
 
 cat <<NEXT
 

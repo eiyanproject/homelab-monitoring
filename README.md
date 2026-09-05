@@ -15,17 +15,20 @@ VictoriaMetrics · VictoriaLogs · vmagent · Grafana · control panel
 
 Three deliberate departures from the usual homelab guide:
 
-**Proxmox VE 9 pushes its own metrics.** `Datacenter → Metric Server →
-OpenTelemetry` sends node, guest and storage metrics to an OTLP endpoint with
-nothing installed on the hypervisor, and it picks up guests you create later
-without being told. Most guides predate this and start with
-`prometheus-pve-exporter`. That exporter is still useful — but as a *second*
-source, not the first (see [Detecting "down"](#detecting-down)).
+**Proxmox pushes its own metrics.** `Datacenter → Metric Server` sends node,
+guest and storage metrics to an endpoint with nothing installed on the
+hypervisor, and it picks up guests you create later without being told. Most
+guides start with `prometheus-pve-exporter` instead. That exporter is still
+useful — but as a *second* source, not the first (see
+[Detecting "down"](#detecting-down)).
 
-> VictoriaMetrics accepts OTLP over **protobuf only**. If your PVE build sends
-> OTLP/JSON its connection test fails with `400 Bad Request`; use
-> `--mode influx` instead, which is the same agentless push over InfluxDB line
-> protocol. See [docs/DEPLOY.md](docs/DEPLOY.md).
+> **Use the InfluxDB push, not OpenTelemetry.** PVE 9.2's OTLP plugin sends
+> `Content-Type: application/json` and has no protobuf code path at all
+> (`/usr/share/perl5/PVE/Status/OpenTelemetry.pm`), while VictoriaMetrics
+> accepts OTLP over **protobuf only**. Its connection test fails with
+> `400 Bad Request` and no combination of flags fixes it. PVE's InfluxDB
+> plugin is the same agentless push, ingested natively by vmagent, and is the
+> default in `setup-metric-server.sh`.
 
 **No agent in the guests.** Grafana Alloy and Vector cost 100–150 MB resident
 *each*. Across a dozen guests that is more memory than the entire monitoring
@@ -53,7 +56,7 @@ anything fails, so quorum never enters into it.
   NODE A                                    NODE B
   ┌───────────────────────────┐             ┌───────────────────────────┐
   │ guests ──rsyslog──┐       │             │       ┌──rsyslog── guests │
-  │ PVE OTLP push ──┐ │       │             │       │ ┌── PVE OTLP push │
+  │ PVE push ───────┐ │       │             │       │ ┌─────── PVE push │
   │                 ▼ ▼       │             │       ▼ ▼                 │
   │        ┌──────────────┐   │             │   ┌──────────────┐        │
   │        │ vmagent      │───┼── dual ─────┼──▶│ VictoriaMetr │        │
