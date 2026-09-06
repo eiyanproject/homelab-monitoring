@@ -107,9 +107,11 @@ Then on each host, in order:
 ./setup-metric-server.sh  --target 192.168.0.200 --yes   # agentless PVE push
 ./gen-targets.sh          --ctid 200                     # then add to cron
 ./setup-guest-logging.sh  --collector 192.168.0.200 --yes
+./status.sh                                              # what is done, what is next
 ```
 
 Every script prints its plan and changes nothing until you add `--yes`.
+`status.sh` only reads, and ends by naming the next actionable step.
 
 Full walkthrough with verification steps: [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -216,7 +218,7 @@ boot with no exporters installed.
 
 ## Detecting "down"
 
-The OTLP push has **no `up` series** — a dead node simply stops sending, which
+The PVE push has **no `up` series** — a dead node simply stops sending, which
 looks identical to a quiet one. Three ways to cover it, in order of preference:
 
 1. An **external watcher** on a host outside the cluster, watching a heartbeat.
@@ -229,17 +231,62 @@ looks identical to a quiet one. Three ways to cover it, in order of preference:
 
 | Path | |
 | --- | --- |
-| `docker-compose.yml` | The four services, pinned |
+| `docker-compose.yml` | The five services, pinned |
 | `config/vmagent/` | Scrape config, file-based service discovery |
 | `config/grafana/provisioning/` | Datasources, dashboards, contact points, alert rules |
-| `dashboards/` | Stack Health |
+| `dashboards/` | Proxmox, Stack Health, and a variable-free copy for public sharing |
 | `control/` | The always-on control panel (Alpine + Python stdlib) |
-| `scripts/` | Bootstrap and the three host-side helpers |
+| `scripts/` | Bootstrap, the host-side setup helpers, and `status.sh` |
 | `docs/` | Deploy guide, service contract, PVE alert notes |
+| `oci/` | The off-site tier: ntfy, the deadman watchdog, public-dashboard path |
 
 Community dashboards worth importing once the PVE push is live: **23855**
-(built for the PVE 9 OTel metrics), **1860** (Node Exporter Full), **24550** and
+(built for the PVE 9 push metrics), **1860** (Node Exporter Full), **24550** and
 **10347** (pve-exporter based).
+
+## Publishing one dashboard read-only
+
+Grafana's *shared dashboard* feature puts a single dashboard on an
+unauthenticated URL: read-only, no nav, no Explore, no datasource access. The
+rest of Grafana stays behind whatever protects it. `dashboards/proxmox-public.json`
+is the copy meant for this.
+
+It is a **copy** rather than the original because shared dashboards will not
+render template variables. Both of the Proxmox dashboard's variables are host
+filters defaulting to All, and an unfiltered query returns exactly what All
+returned, so the copy shows the same data without the dropdowns.
+
+> Two things the normal renderer forgives and the shared one does not: **every
+> panel needs an `id`** (the shared page fetches data per panel id, so panels
+> without one all collapse into a single merged panel), and **uncollapsed rows
+> must hold their panels as siblings**, not nested. A dashboard exported by
+> hand often has neither.
+
+Behind Cloudflare Access, three paths must be excluded or the page loads as a
+broken shell — the document, its data, and its assets are three separate
+requests:
+
+| Path | |
+| --- | --- |
+| `/public-dashboards` | the page |
+| `/api/public` | panel queries |
+| `/public` | the JS and CSS bundle |
+
+A Bypass policy on those, scoped by path, leaves `/login`, `/d/*` and the rest
+of `/api/*` protected.
+
+The share URL carries a 32-hex token Grafana generates and will not let you
+rename. `oci/add-dashboard-path.sh` puts a readable path in front of it:
+
+```bash
+sudo ./oci/add-dashboard-path.sh --token <32-hex> --path /homelab --yes
+```
+
+It edits the reverse proxy's config in place, backs it up, validates, and rolls
+back if the reload fails. It emits a **redirect**, not a rewrite: Grafana is a
+single-page app that routes on the browser's URL, so a rewritten request
+arrives with the right HTML and then renders "Page not found". The clean path
+is what you share; the token appears once the visitor lands.
 
 ## Adding your own services
 
@@ -249,7 +296,7 @@ lines gets a service into dashboards, alerts and log search. See
 
 ## Requirements
 
-- Proxmox VE 9.0+ (check `ls /usr/share/perl5/PVE/Status/OpenTelemetry.pm`)
+- Proxmox VE 9.0+ (built and run against 9.2)
 - ~1.5 GB RAM and 40 GB disk per node
 - Debian LXC template downloaded (`pveam available --section system | grep debian`)
 

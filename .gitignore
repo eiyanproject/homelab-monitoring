@@ -16,3 +16,7 @@ config/grafana/provisioning/alerting/notification-policies.yml
 
 # Generated from scrape.yml by scripts/render-scrape.sh (per-node value)
 config/vmagent/scrape.active.yml
+
+# Python bytecode - control/app.py and oci/watchdog.py both generate this
+__pycache__/
+*.pyc
