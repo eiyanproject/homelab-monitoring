@@ -1,7 +1,7 @@
 {
   "uid": "hm-jellyfin",
   "title": "Jellyfin",
-  "description": "Jellyfin (CT 100 on eiyan), from the agentless PVE push - nothing is installed in the container. App-level figures (streams, transcodes, users) need Jellyfin's own /metrics endpoint enabled and scraped.",
+  "description": "Jellyfin (CT 100 on eiyan). Guest rows come from the agentless PVE push; application rows from Jellyfin's own /metrics endpoint, enabled via EnableMetrics in /var/lib/jellyfin/config/system.xml. Sessions, transcodes and per-user activity are not in that endpoint - those need an API-polling exporter.",
   "tags": [
     "homelab",
     "service"
@@ -810,6 +810,685 @@
         }
       ],
       "description": "Outbound is what a client is actually streaming. Inbound is mostly metadata fetches and library reads.",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Jellyfin application",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Open connections",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max without(node) (microsoft_aspnetcore_server_kestrel_kestrel_active_connections{service=\"jellyfin\"})",
+          "range": true
+        }
+      ],
+      "description": "Kestrel's live TCP connections. The closest thing this endpoint has to a count of clients - one playing client typically holds several.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Requests in flight",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum (max without(node) (http_requests_in_progress{service=\"jellyfin\"}))",
+          "range": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Process memory",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": [],
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max without(node) (process_working_set_bytes{service=\"jellyfin\"})",
+          "range": true
+        }
+      ],
+      "description": "The Jellyfin process alone. The container total in the Overview row is larger - that includes page cache and everything else in the LXC.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Uncaught exceptions",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 31
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max without(node) (dotnet_exceptions_total{service=\"jellyfin\"})",
+          "range": true
+        }
+      ],
+      "description": "Cumulative since start. A flat line is healthy; a step means something threw. .NET throws routinely, so treat the slope as the signal.",
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Request rate by endpoint",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "mappings": [],
+          "unit": "reqps",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum by (endpoint) (max without(node) (rate(http_requests_received_total{service=\"jellyfin\"}[5m])))",
+          "range": true,
+          "legendFormat": "{{endpoint}}"
+        }
+      ],
+      "description": "Playback shows up here as its own endpoints, separate from API traffic. Both nodes scrape this target and each replicates to both stores, so every series exists twice under different node labels. max without(node) collapses the pair before aggregating - a plain sum would double every figure.",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Non-2xx responses",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "mappings": [],
+          "unit": "reqps",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum by (code) (max without(node) (rate(http_requests_received_total{service=\"jellyfin\", code!~\"2..\"}[5m])))",
+          "range": true,
+          "legendFormat": "{{code}}"
+        }
+      ],
+      "description": "Split by status code. 401s during normal use are usually a client re-authenticating; sustained 5xx is the one to care about.",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Request latency",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "mappings": [],
+          "unit": "s",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (max without(node) (rate(http_request_duration_seconds_bucket{service=\"jellyfin\"}[5m]))))",
+          "range": true,
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.50, sum by (le) (max without(node) (rate(http_request_duration_seconds_bucket{service=\"jellyfin\"}[5m]))))",
+          "range": true,
+          "legendFormat": "p50"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Socket throughput",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "mappings": [],
+          "unit": "Bps",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max without(node) (rate(dotnet_sockets_bytes_sent_total{service=\"jellyfin\"}[5m]))",
+          "range": true,
+          "legendFormat": "sent"
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "max without(node) (rate(dotnet_sockets_bytes_received_total{service=\"jellyfin\"}[5m]))",
+          "range": true,
+          "legendFormat": "received"
+        }
+      ],
+      "description": "Bytes at the socket layer. Sent is what clients are actually pulling, which is the nearest available stand-in for streaming bitrate.",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "type": "row",
+      "title": "Runtime and database",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      }
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "GC heap by generation",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "mappings": [],
+          "unit": "bytes",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max without(node) (dotnet_gc_heap_size_bytes{service=\"jellyfin\"})",
+          "range": true,
+          "legendFormat": "{{gc_generation}}"
+        }
+      ],
+      "description": "A gen-2 heap that only grows, never dropping after a collection, is the shape of a leak.",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "GC pause and threadpool",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max without(node) (dotnet_gc_pause_ratio{service=\"jellyfin\"}) * 100",
+          "range": true,
+          "legendFormat": "gc pause %"
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "max without(node) (dotnet_threadpool_num_threads{service=\"jellyfin\"})",
+          "range": true,
+          "legendFormat": "threadpool threads"
+        }
+      ],
+      "description": "Pause ratio is the share of time execution was stopped for garbage collection. Threads climbing while requests do not means work is queueing.",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "Database activity",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max without(node) (microsoft_entityframeworkcore_microsoft_entityframeworkcore_queries{service=\"jellyfin\"})",
+          "range": true,
+          "legendFormat": "queries"
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "max without(node) (microsoft_entityframeworkcore_microsoft_entityframeworkcore_savechanges{service=\"jellyfin\"})",
+          "range": true,
+          "legendFormat": "saves"
+        },
+        {
+          "refId": "C",
+          "editorMode": "code",
+          "expr": "max without(node) (microsoft_entityframeworkcore_microsoft_entityframeworkcore_active_dbcontexts{service=\"jellyfin\"})",
+          "range": true,
+          "legendFormat": "open contexts"
+        }
+      ],
+      "description": "Jellyfin's own database through Entity Framework - no exporter needed. Open contexts that climb and never fall is a connection leak.",
       "options": {
         "legend": {
           "displayMode": "list",
