@@ -77,7 +77,14 @@ require('http')
 
 ## Registering it
 
-In the mon LXC, add to `/srv/monitoring/targets/services.json`:
+From the Proxmox host, once **per node**, pointing at that node's own mon LXC:
+
+```bash
+./scripts/register-service.sh --ctid 200 --service catalog-api --target 192.168.0.42:9101
+./scripts/register-service.sh --ctid 200 --service catalog-api --target 192.168.0.42:9101 --yes
+```
+
+It appends to `/srv/monitoring/targets/services.json` in that container:
 
 ```json
 [
@@ -89,6 +96,14 @@ In the mon LXC, add to `/srv/monitoring/targets/services.json`:
 ```
 
 vmagent reloads it within 60 s. No restart.
+
+> **Both nodes, not one.** Guests are split between the two vmagents by
+> `gen-targets.sh`, so each guest is scraped once. Services are deliberately
+> the other way round: both nodes scrape every service, so one node being down
+> does not lose it. The cost is that each series exists twice under a different
+> `node` label, and **every dashboard query has to collapse them** with
+> `max without(node) (...)` before aggregating. A plain `sum` doubles the
+> figure, silently and plausibly.
 
 ## Make it automatic
 

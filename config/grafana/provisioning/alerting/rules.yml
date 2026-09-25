@@ -228,3 +228,151 @@ groups:
                   query: {params: [B]}
                   reducer: {params: [], type: last}
                   type: query
+
+  # learnbox (CT 116 on eiyan2). The first two are the service contract; the
+  # last two are specific to what this service is - a box that runs arbitrary
+  # learner code as a real shell, where the guards being OFF is the incident.
+  - orgId: 1
+    name: learnbox
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-learnbox-down
+        title: learnbox is not responding
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: "learnbox has stopped answering its scrape"
+          runbook: "pct exec 116 -- systemctl status learnbox, then journalctl -u learnbox -n 100. Both mon LXCs scrape this target, so max without(node) means one node's vmagent being down does not fire this."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'max without(node) (up{service="learnbox"})'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-learnbox-errors
+        title: learnbox is returning 5xx
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5 percent of learnbox requests are failing"
+          runbook: "Check learnbox_errors_total by kind on the dashboard first - it says which subsystem. A 4xx floor is normal here (the CSRF header guard) and is deliberately not part of this ratio."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'sum(max without(node) (rate(learnbox_requests_total{status=~"5.."}[10m]))) / sum(max without(node) (rate(learnbox_requests_total[10m]))) * 100'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [5], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-learnbox-workspace-full
+        title: learnbox workspace is running out of space
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "The learner filesystem is under 1 GiB free"
+          runbook: "Fires above the service's own floor: below LEARNBOX_MIN_FREE_MB (512 MB) readyz goes unavailable and new shells and checks are refused. Usually a cargo target dir or a .venv - pct exec 116 -- du -xh --max-depth=2 /home/learner | sort -h | tail -20"
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'max without(node) (learnbox_workspace_free_bytes)'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1073741824], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-learnbox-cpu-uncapped
+        title: learnbox CPU cap is not in force
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "The learner cgroup is running without cpu.max"
+          runbook: "Learner code runs as a real shell, so an uncapped box is one runaway loop away from starving the node. Check cgroup v2 delegation: pct exec 116 -- cat /sys/fs/cgroup/learnbox/learner/cpu.max should not be 'max 100000'. A container restart without Delegate=yes is the usual cause."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'max without(node) (learnbox_cpu_capped)'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query

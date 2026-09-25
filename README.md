@@ -234,7 +234,7 @@ looks identical to a quiet one. Three ways to cover it, in order of preference:
 | `docker-compose.yml` | The five services, pinned |
 | `config/vmagent/` | Scrape config, file-based service discovery |
 | `config/grafana/provisioning/` | Datasources, dashboards, contact points, alert rules |
-| `dashboards/` | Proxmox, Stack Health, and a variable-free copy for public sharing |
+| `dashboards/` | Proxmox, Stack Health, a variable-free copy for public sharing, and one per service (catalog, jellyfin, learnbox) |
 | `control/` | The always-on control panel (Alpine + Python stdlib) |
 | `scripts/` | Bootstrap, the host-side setup helpers, and `status.sh` |
 | `docs/` | Deploy guide, service contract, PVE alert notes |
