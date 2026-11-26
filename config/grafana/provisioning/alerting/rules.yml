@@ -376,3 +376,152 @@ groups:
                   query: {params: [B]}
                   reducer: {params: [], type: last}
                   type: query
+
+  # catalog (CT 113 on eiyan2, catalog-api on :9101). Down and 5xx are the
+  # service contract. The two stale rules are this service's jobs: the weekly
+  # dump update, and the daily pull backup of the local edits. The PVE guest
+  # rules already cover CT 113 stopping or its disk filling.
+  - orgId: 1
+    name: catalog
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-catalog-down
+        title: catalog is not responding
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+        annotations:
+          summary: "catalog-api has stopped answering its scrape"
+          runbook: "pct exec 113 -- docker compose -f /opt/catalog/catalog-api/deploy/docker-compose.yml ps, then docker logs --tail=100 catalog-api. All three containers are restart: unless-stopped, so a crash loop shows as Restarting. Both mon LXCs scrape it; max without(node) keeps one vmagent being down from firing this."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: 'max without(node) (up{service="catalog-api"})'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-catalog-errors
+        title: catalog is returning 5xx
+        condition: B
+        for: 10m
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5 percent of catalog requests are failing"
+          runbook: "catalog_errors_total by kind on the hm-catalog dashboard says which subsystem. 'database' during a Tuesday update usually means pool starvation (HANDOVER section 5). Needs 20+ requests in 10 minutes, so one failed page load on an idle evening does not fire it. status is a class label here (5xx), not a code."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: '(sum(max without(node) (rate(catalog_requests_total{status="5xx"}[10m]))) / sum(max without(node) (rate(catalog_requests_total[10m]))) * 100) and on() (sum(max without(node) (increase(catalog_requests_total[10m]))) > 20)'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 900, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [5], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-catalog-update-stale
+        title: catalog weekly update has not succeeded
+        condition: B
+        for: 1h
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "No successful dump update for over 8 days"
+          runbook: "GET http://192.168.0.14/api/v1/status shows the last run's error. Common causes: r18.dev refusing the download (403/UA) or the free-space preflight. Fallback: upload the dump on Admin -> Update DB. Only fires where UPDATE_ENABLED=true (catalog_update_enabled == 1); a timestamp of 0 means no success was ever recorded."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: '((time() - max without(node) (catalog_update_last_success_timestamp_seconds)) / 86400) and on() (max without(node) (catalog_update_enabled) == 1)'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [8], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-catalog-backup-stale
+        title: catalog backup has not run
+        condition: B
+        for: 1h
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+        annotations:
+          summary: "No successful backup of the catalog's local edits for over 36 hours"
+          runbook: "On the backup host: systemctl status catalog-backup.timer, journalctl -u catalog-backup -n 50. The script exits non-zero when the login fails (ADMIN_PASSWORD in /etc/catalog-backup.env out of step with the catalog's admin password, changed under Settings -> Account) or the response is not an export. The metric is pushed once a day, hence last_over_time; silent until the first backup has ever run."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              editorMode: code
+              expr: '(time() - max(last_over_time(catalog_backup_last_success_timestamp_seconds{service="catalog-api"}[30d]))) / 3600'
+              instant: true
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [36], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
