@@ -648,6 +648,7 @@
               "job": true,
               "instance": true,
               "service": true,
+              "guest_type": true,
               "kind": true
             },
             "renameByName": {

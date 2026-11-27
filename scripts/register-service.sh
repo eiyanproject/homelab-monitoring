@@ -60,7 +60,7 @@ if grep -qE "\"service\"[[:space:]]*:[[:space:]]*\"${SERVICE}\"" <<<"$CUR"; then
   exit 0
 fi
 
-ENTRY="  { \"targets\": [\"${TARGET}\"], \"labels\": { \"job\": \"service\", \"service\": \"${SERVICE}\", \"kind\": \"${KIND}\" } }"
+ENTRY="  { \"targets\": [\"${TARGET}\"], \"labels\": { \"job\": \"service\", \"service\": \"${SERVICE}\", \"guest_type\": \"${KIND}\" } }"
 
 # Textual append rather than a JSON parse: neither the Proxmox host nor a
 # Debian-standard LXC is guaranteed to have jq or python3, and awk is.
@@ -94,7 +94,7 @@ RESULT=$(awk -v entry="$ENTRY" '
 ' <<<"$CUR") || die "could not find the closing ] in $FILE"
 
 echo "CT ${CTID}  ${FILE}"
-echo "adding: ${SERVICE} at ${TARGET} (kind=${KIND})"
+echo "adding: ${SERVICE} at ${TARGET} (guest_type=${KIND})"
 echo
 echo "--- resulting file ---"
 echo "$RESULT"

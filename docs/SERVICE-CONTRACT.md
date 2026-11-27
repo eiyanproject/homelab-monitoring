@@ -29,6 +29,16 @@ journald → rsyslog → VictoriaLogs carries it with no extra work. VictoriaLog
 derives `level` from syslog priority automatically, so `level:error` works
 immediately.
 
+> **In Docker, stdout does not reach rsyslog by default.** Docker's default
+> `json-file` driver keeps container output to itself - catalog-api's guest
+> shipped only dockerd's own lines (seen live, 2026-11-27). Run
+> `setup-guest-logging.sh --docker-journald` (or set `"log-driver": "journald"`
+> in `/etc/docker/daemon.json`) and recreate the containers.
+>
+> **The syslog `level` is not your JSON `level`.** Through Docker, stdout
+> arrives as info and stderr as err, whatever the JSON says. Write errors to
+> stderr, or filter on the JSON: `hostname:"x" | unpack_json | level:error`.
+
 ## The four metrics
 
 | Metric | Type | Labels | Answers |
@@ -41,6 +51,13 @@ immediately.
 Rate, errors, duration — the RED method. Build the three panels once as a
 Grafana library dashboard and every future service gets a working dashboard by
 changing one variable.
+
+> **Do not use these label names**: `node`, `job`, `instance`, `service`,
+> `guest`, `guest_type`, `nodename`, `ctid`. The scraper sets them, and a
+> clash renames yours to `exported_<name>` so every query by it reads the
+> scraper's value. `kind` on `<svc>_errors_total` is fine since the scrape
+> config stopped setting `kind` - before that, "errors by kind" was one line
+> called `lxc`.
 
 > **Never label with a request ID, user ID, session, or a full URL path.** Each
 > distinct value becomes a stored time series. One unbounded label will take the
@@ -90,7 +107,7 @@ It appends to `/srv/monitoring/targets/services.json` in that container:
 [
   {
     "targets": ["192.168.0.42:9101"],
-    "labels": { "job": "service", "service": "catalog-api", "kind": "lxc" }
+    "labels": { "job": "service", "service": "catalog-api", "guest_type": "lxc" }
   }
 ]
 ```

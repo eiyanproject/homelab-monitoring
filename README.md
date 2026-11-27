@@ -105,15 +105,50 @@ Then on each host, in order:
 
 ```bash
 ./setup-metric-server.sh  --target 192.168.0.200 --yes   # agentless PVE push
-./gen-targets.sh          --ctid 200                     # then add to cron
-./setup-guest-logging.sh  --collector 192.168.0.200 --yes
+./gen-targets.sh          --ctid 200                     # then add to cron, below
+./setup-guest-logging.sh  --collector 192.168.0.200 --yes --docker-journald
 ./status.sh                                              # what is done, what is next
 ```
+
+The cron line for `gen-targets.sh` (it only lists guests whose `:9100`
+answers, so a guest with no node_exporter is not a permanent `up=0`):
+
+```
+*/5 * * * * /srv/homelab-monitoring/scripts/gen-targets.sh --ctid 200 --quiet 2>&1 | logger -t gen-targets
+```
+
+`--docker-journald` switches Docker in each guest to the journald log driver,
+so container stdout (the service's own JSON logs) reaches VictoriaLogs. Docker
+restarts; recreate the containers afterwards. Without it only dockerd's own
+lines ship.
 
 Every script prints its plan and changes nothing until you add `--yes`.
 `status.sh` only reads, and ends by naming the next actionable step.
 
 Full walkthrough with verification steps: [docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Updating
+
+One command per node, on the Proxmox host, from this repo's checkout there:
+
+```bash
+./scripts/update-lxc.sh                              # plan only
+./scripts/update-lxc.sh --yes                        # on the primary node
+./scripts/update-lxc.sh --yes --role standby         # on the standby node
+./scripts/update-lxc.sh --yes --snapshot --logging   # rollback point, and re-apply guest logging
+```
+
+It pulls the host checkout, then runs `scripts/update.sh` inside the mon LXC:
+pull, add any new `.env` settings with their defaults (never overwriting a
+value; the timezone comes from the host), re-render alerting and scrape
+config, restart, and wait until healthy. On the host it installs the
+`gen-targets` and `report-snapshots` crons if they are missing and refreshes
+the target list. `--role` is saved in `.env`, so it is only needed once.
+
+On a standby, the rules Grafana already holds are removed too - an empty
+alerting folder does not do that, which is how a standby kept a stale rule
+group for months. `--logging` re-runs `setup-guest-logging.sh` with
+`--docker-journald` (it restarts Docker in guests that run it).
 
 ## Control panel
 

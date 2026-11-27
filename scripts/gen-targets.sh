@@ -3,7 +3,7 @@
 # this Proxmox node, and pushes it into the local mon LXC.
 #
 # RUN THIS ON THE PROXMOX HOST. Safe to run from cron:
-#   */5 * * * * /srv/homelab-monitoring/scripts/gen-targets.sh --ctid 200 --quiet
+#   */5 * * * * /srv/homelab-monitoring/scripts/gen-targets.sh --ctid 200 --quiet 2>&1 | logger -t gen-targets
 #
 # Only RUNNING guests are listed. A stopped guest is not a failing target -
 # guest-down detection comes from the PVE metrics instead, so the two signals
@@ -32,6 +32,16 @@ command -v pct >/dev/null || die "pct not found - run this on the Proxmox host"
 NODE=$(hostname)
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
+skipped=""
+
+# Only list a guest whose exporter actually answers. Listing every running
+# guest on :9100 made a permanent up=0 for each one with no node_exporter
+# (catalog and mon-eiyan2 sat at 0 for months), which is false data and keeps
+# the "exporter target is down" alert firing forever. Node exporters are opt-in
+# per guest - the PVE push already covers what the hypervisor can see.
+has_exporter() {
+  timeout 2 bash -c "exec 3<>/dev/tcp/$1/$PORT" 2>/dev/null
+}
 
 {
   echo "["
@@ -42,15 +52,19 @@ trap 'rm -f "$TMP"' EXIT
     [[ -z "$id" ]] && continue
     cfg=$(pct config "$id" 2>/dev/null) || continue
     name=$(awk -F': ' '/^hostname:/{print $2}' <<<"$cfg")
-    ip=$(grep -oE 'ip=([0-9]{1,3}\.){3}[0-9]{1,3}' <<<"$cfg" | head -1 | cut -d= -f2)
+    # `|| true`: under pipefail a guest with no static ip= made grep fail and
+    # set -e ended the whole run - the DHCP fallback below never ran, and one
+    # such guest left guests.json unwritten for the entire node.
+    ip=$(grep -oE 'ip=([0-9]{1,3}\.){3}[0-9]{1,3}' <<<"$cfg" | head -1 | cut -d= -f2) || true
     # DHCP guests: ask the running container for its own address.
     if [[ -z "$ip" ]]; then
       ip=$(pct exec "$id" -- hostname -I 2>/dev/null | awk '{print $1}') || true
     fi
     [[ -z "$ip" ]] && continue
+    has_exporter "$ip" || { skipped="${skipped} ${name}"; continue; }
     [[ $first -eq 0 ]] && echo ","
     first=0
-    printf '  {"targets":["%s:%s"],"labels":{"job":"node","guest":"%s","kind":"lxc","ctid":"%s","node":"%s"}}' \
+    printf '  {"targets":["%s:%s"],"labels":{"job":"node","guest":"%s","guest_type":"lxc","ctid":"%s","nodename":"%s"}}' \
       "$ip" "$PORT" "$name" "$id" "$NODE"
   done < <(pct list 2>/dev/null | awk 'NR>1 && $2=="running"{print $1}')
 
@@ -64,9 +78,10 @@ trap 'rm -f "$TMP"' EXIT
          | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
          | grep -v '^127\.' | head -1) || true
     [[ -z "$ip" ]] && continue
+    has_exporter "$ip" || { skipped="${skipped} ${name}"; continue; }
     [[ $first -eq 0 ]] && echo ","
     first=0
-    printf '  {"targets":["%s:%s"],"labels":{"job":"node","guest":"%s","kind":"vm","ctid":"%s","node":"%s"}}' \
+    printf '  {"targets":["%s:%s"],"labels":{"job":"node","guest":"%s","guest_type":"vm","ctid":"%s","nodename":"%s"}}' \
       "$ip" "$PORT" "$name" "$id" "$NODE"
   done < <(qm list 2>/dev/null | awk 'NR>1 && $3=="running"{print $1}')
 
@@ -75,7 +90,8 @@ trap 'rm -f "$TMP"' EXIT
 } > "$TMP"
 
 count=$(grep -c '"targets"' "$TMP" || true)
-log "discovered ${count} running guest(s) on ${NODE}"
+log "discovered ${count} running guest(s) with an exporter on :${PORT} on ${NODE}"
+[[ -n "$skipped" ]] && log "not listed (running, nothing answers on :${PORT}):${skipped}"
 
 if [[ -n "$OUT" ]]; then
   cp "$TMP" "$OUT"

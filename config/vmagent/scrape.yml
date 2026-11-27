@@ -42,8 +42,25 @@ scrape_configs:
   - job_name: node
     file_sd_configs:
       - files: [/etc/vmagent/targets/guests.json]
+    # Target labels must never share a name with a label the exporter itself
+    # sends, or the exporter's one is renamed exported_<name> and every query
+    # by it silently reads the target's value instead. Until this existed,
+    # targets carried `kind` (lxc/vm) and `node` (the Proxmox node):
+    #   - catalog_errors_total{kind} and catalog_rows{kind} arrived as
+    #     exported_kind, so "errors by kind" showed one line called "lxc";
+    #   - `node` collides with the external label above, so the Proxmox node
+    #     ended up as exported_node.
+    # They are renamed here, not only in the generators, so a guests.json or
+    # services.json written by an older script is still read correctly.
+    # guest_type = lxc|vm, nodename = the Proxmox node (the same name the PVE
+    # push uses for it).
+    relabel_configs: &target-labels
+      - {action: replace, source_labels: [kind], regex: "(.+)", target_label: guest_type}
+      - {action: replace, source_labels: [node], regex: "(.+)", target_label: nodename}
+      - {action: labeldrop, regex: "kind|node"}
 
   # Your own services. See docs/SERVICE-CONTRACT.md.
   - job_name: service
     file_sd_configs:
       - files: [/etc/vmagent/targets/services.json]
+    relabel_configs: *target-labels

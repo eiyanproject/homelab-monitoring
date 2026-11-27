@@ -16,6 +16,14 @@ services:
       # Accept slightly out-of-order samples: the peer's buffered backlog
       # replays with older timestamps after an outage.
       - -search.maxStalenessInterval=5m
+      # Drop duplicate samples. status.cfg has two entries (one per mon LXC),
+      # so every PVE sample reaches both agents and each agent replicates to
+      # both stores: each store held every node/guest sample TWICE, with the
+      # same timestamp and value (seen live, 2026-11-27). Averages survive
+      # that; count_over_time, sum_over_time, changes() and storage do not.
+      # 1ms removes only samples whose timestamps are identical - scraped
+      # series differ by the `node` label and are never touched.
+      - -dedup.minScrapeInterval=${METRICS_DEDUP_INTERVAL:-1ms}
     volumes:
       - vm-data:/storage
     ports:

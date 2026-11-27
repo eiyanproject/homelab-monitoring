@@ -722,6 +722,7 @@
               "job": true,
               "instance": true,
               "service": true,
+              "guest_type": true,
               "node": true,
               "exported_node": true
             },
