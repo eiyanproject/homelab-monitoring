@@ -525,3 +525,166 @@ groups:
                   query: {params: [B]}
                   reducer: {params: [], type: last}
                   type: query
+
+  # Alerting watching itself. The Traps all share one shape - it provisioned
+  # and did nothing - and these catch the ways that has happened here:
+  # notifications failing (85 of 85 on 2026-11-27), both nodes evaluating, and
+  # a scrape target that can never be up. A delivery failure can only reach you
+  # through some OTHER channel that works - one more reason to configure two.
+  # The OCI watchdog checks delivery as well, over its own path.
+  - orgId: 1
+    name: alerting-health
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-alert-delivery-failing
+        title: Alert notifications are failing
+        condition: B
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: critical}
+        annotations:
+          summary: "{{ $labels.node }}: {{ $labels.integration }} notifications are failing"
+          runbook: "Grafana -> Alerting -> Contact points shows the last error per integration. Then on the mon LXC: sh scripts/test-alert.sh /srv/monitoring - it posts through the same URL and token as Grafana, from inside the Grafana container, and prints the HTTP status. 401/403 is NTFY_TOKEN; a resolve or connect error is NTFY_URL, DNS or the OCI tunnel."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1800, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'sum by (node, integration) (increase(grafana_alerting_notifications_failed_total[30m]))', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 1800, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-alerting-on-both-nodes
+        title: Alert rules are evaluated on both nodes
+        condition: B
+        for: 15m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "More than one Grafana is evaluating alert rules - every alert will arrive twice"
+          runbook: "On the standby, set ALERTING_DIR=./config/grafana/provisioning/alerting-disabled in /srv/monitoring/.env, then docker compose up -d. Rule groups already in its Grafana DB stay until deleted under Alerting -> Alert rules: provisioning never removes a group that left the files."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'count(count by (node) (grafana_alerting_rule_group_rules{type="alerting"}))', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-replication-dropping
+        title: Replication is dropping samples
+        condition: B
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "vmagent on {{ $labels.node }} dropped samples instead of delivering them"
+          runbook: "Usually BUFFER_MAX was reached while the peer was down, so the oldest queued data was discarded and the two stores now differ for that window. If it repeats with the peer up: docker compose logs --tail=200 vmagent."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1800, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'sum by (node) (increase(vmagent_remotewrite_samples_dropped_total[30m]))', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 1800, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-scrape-target-down
+        title: Exporter target is down
+        condition: B
+        for: 30m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.guest }} ({{ $labels.instance }}) is listed as a node_exporter target and does not answer"
+          runbook: "gen-targets.sh lists every running guest whether or not it runs node_exporter. Install it in the guest, or drop the guest from targets/guests.json. Both mon LXCs scrape it, hence max without(node)."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'max without(node) (up{job="node"})', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+  # Jellyfin (CT 100 on eiyan). Its /metrics has no playback figures, so only
+  # the contract's liveness rule applies; the PVE guest rules cover its disk.
+  - orgId: 1
+    name: jellyfin
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-jellyfin-down
+        title: jellyfin is not responding
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: critical}
+        annotations:
+          summary: "jellyfin has stopped answering its scrape"
+          runbook: "pct exec 100 -- systemctl status jellyfin, then journalctl -u jellyfin -n 100. Both mon LXCs scrape this target, so one node vmagent being down does not fire this."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'max without(node) (up{service="jellyfin"})', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query

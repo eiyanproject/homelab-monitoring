@@ -407,3 +407,226 @@ groups:
                   query: {params: [B]}
                   reducer: {params: [], type: last}
                   type: query
+
+  # A node whose PVE push stops. The survivor's store holds a full copy of every
+  # metric, so whichever node evaluates alerts sees the other one go quiet.
+  # When the evaluating node itself dies, only the OCI watchdog can say so.
+  # Written the backwards way, like guest-stopped: `unless` returns the last
+  # uptime, which is positive, so a gt-0 threshold can match it. [1d] keeps it
+  # firing for a day instead of self-clearing after 2 h like the guest rule.
+  - orgId: 1
+    name: proxmox-reachability
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-pve-node-silent
+        title: Proxmox node stopped reporting
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: critical}
+        annotations:
+          summary: "Proxmox node {{ $labels.host }} has sent no metrics for 5 minutes"
+          runbook: "The node is down or rebooting, or its metric-server push broke (pvesh get /cluster/metrics/server). If it is up: systemctl status pvestatd there. If it is down: the survivor /etc/pve is read-only until pvecm expected 1."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 86400, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'max_over_time(system_uptime{object="nodes"}[1d]) unless system_uptime{object="nodes"}', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 86400, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-pve-node-rebooted
+        title: Proxmox node rebooted
+        condition: B
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "Proxmox node {{ $labels.host }} booted {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} ago"
+          runbook: "If nobody rebooted it: journalctl -b -1 -n 200 on the node for the reason. The node that boots from the USB SSD whose link resets shows up here first. Self-clears 30 min after boot."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'system_uptime{object="nodes"} < 1800', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+  # The numbers setup-backups.sh and report-snapshots.sh push. Both are pushed,
+  # not scraped (twice a day / hourly), hence last_over_time. The two
+  # "not reporting" rules compare against the node count, so they also fire
+  # when the metric has never existed - the state on 2026-11-27.
+  - orgId: 1
+    name: backups
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+      - uid: hm-backup-stale
+        title: Backup is over 2 days old
+        condition: B
+        for: 1h
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "Newest backup on {{ $labels.node }} is {{ with $values.A }}{{ humanize .Value }}{{ end }} hours old"
+          runbook: "cat /etc/pve/jobs.cfg for the vzdump job, and journalctl -t hm-backup-mirror on that node. 48 h is the threshold setup-backups.sh prints (172800 s)."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'max by (node) (last_over_time(backup_age_seconds[14h])) / 3600', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [48], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-backup-none
+        title: No backup files found
+        condition: B
+        for: 1h
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "hm-backup-mirror on {{ $labels.node }} found no dump files at all"
+          runbook: "The mirror reports -1 when the dump dir is empty: the vzdump job is missing, disabled or writing to another storage. Check /etc/pve/jobs.cfg."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'min by (node) (last_over_time(backup_age_seconds[14h]))', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: lt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-backup-mirror-failed
+        title: Backup mirror to the peer failed
+        condition: B
+        for: 1h
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "The last backup mirror run on {{ $labels.node }} failed"
+          runbook: "rsync to the peer exited non-zero. Run /usr/local/bin/hm-backup-mirror by hand on that node. Usual causes: the peer is down, or its root ssh key is not accepted (ssh -o BatchMode=yes root@<peer> true)."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: '1 - min by (node) (last_over_time(backup_mirror_ok[14h]))', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-backup-not-reporting
+        title: Backup freshness is not being reported
+        condition: B
+        for: 1h
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ with $values.A }}{{ .Value }}{{ end }} Proxmox node(s) sent no backup_age_seconds in 26 hours"
+          runbook: "crontab -l on each node for hm-backup-mirror; if it is missing, run scripts/setup-backups.sh. Without this rule a backup that stopped months ago is silent."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'count(system_uptime{object="nodes"}) - (count(count by (node) (last_over_time(backup_age_seconds[26h]))) or vector(0))', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
+
+      - uid: hm-snapshot-report-not-running
+        title: Snapshot report is not running
+        condition: B
+        for: 1h
+        noDataState: OK
+        execErrState: OK
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ with $values.A }}{{ .Value }}{{ end }} Proxmox node(s) sent no pve_snapshot_count in 3 hours"
+          runbook: "pve_snapshot_count is sent even at zero, so its absence means the hourly cron is not running. crontab -l on each node, then reinstall the line at the top of scripts/report-snapshots.sh. Forgotten snapshot is blind until this clears."
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: victoriametrics
+            model: {editorMode: code, expr: 'count(system_uptime{object="nodes"}) - (count(count by (nodename) (last_over_time(pve_snapshot_count[3h]))) or vector(0))', instant: true, range: false, refId: A}
+          - refId: B
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: B
+              conditions:
+                - evaluator: {params: [0], type: gt}
+                  operator: {type: and}
+                  query: {params: [B]}
+                  reducer: {params: [], type: last}
+                  type: query
