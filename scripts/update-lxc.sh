@@ -9,7 +9,13 @@
 #   5. optional (--logging): re-applies guest logging, including Docker
 #      container logs - this restarts Docker in guests that run it
 #
-# RUN THIS ON THE PROXMOX HOST, once per node:
+# RUN THIS ON THE PROXMOX HOST, once per node. Standalone works too - it
+# clones (or reuses) the host checkout at /srv/homelab-monitoring:
+#
+#   curl -fsSLO https://raw.githubusercontent.com/eiyanproject/homelab-monitoring/main/scripts/update-lxc.sh
+#   bash update-lxc.sh --yes
+#
+# From the checkout:
 #
 #   ./scripts/update-lxc.sh                                  # plan only
 #   ./scripts/update-lxc.sh --yes                            # update
@@ -37,13 +43,32 @@ while [[ $# -gt 0 ]]; do
     --logging)  LOGGING="yes"; shift ;;
     --yes)      CONFIRM="yes"; shift ;;
     --no-self-pull) SELF_PULL="no"; shift ;;
-    -h|--help)  sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,27p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
 command -v pct >/dev/null || die "pct not found - run this on the Proxmox host"
 [[ -z "$ROLE" || "$ROLE" == primary || "$ROLE" == standby ]] || die "--role must be primary or standby"
+
+# ---- 0. downloaded on its own (curl) --------------------------------------
+# This script drives the repo's other host scripts, so it needs a checkout.
+# A copy fetched with curl uses (or clones) the host checkout and hands over
+# to the copy in there.
+HOST_DIR="/srv/homelab-monitoring"
+REPO="https://github.com/eiyanproject/homelab-monitoring.git"
+if [[ ! -f "$ROOT/scripts/gen-targets.sh" ]]; then
+  if ! git -C "$HOST_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    if [[ -e "$HOST_DIR" ]]; then
+      mv "$HOST_DIR" "${HOST_DIR}.pre-git.$(date +%s)"
+      echo "moved the old non-git $HOST_DIR aside"
+    fi
+    command -v git >/dev/null || { apt-get update -qq && apt-get install -y -qq git >/dev/null; }
+    echo "cloning $REPO into $HOST_DIR"
+    git clone -q "$REPO" "$HOST_DIR"
+  fi
+  exec bash "$HOST_DIR/scripts/update-lxc.sh" "${ORIG_ARGS[@]}"
+fi
 
 # ---- 1. this checkout ------------------------------------------------------
 # Pull first and re-run the new copy, so the host scripts and the container
