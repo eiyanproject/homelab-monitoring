@@ -10,8 +10,8 @@ Addresses below are examples. Substitute your own.
 ## Phase 1 — Foundation on node A (~1.5 h)
 
 ```bash
-git clone https://github.com/eiyanproject/homelab-monitoring.git /srv/homelab-monitoring
-cd /srv/homelab-monitoring/scripts
+git clone https://github.com/eiyanproject/homelab-monitoring.git /home/scripts/monitoring
+cd /home/scripts/monitoring/scripts
 ./bootstrap-lxc.sh --ctid 200 --hostname mon-a \
   --ip 192.168.0.200/24 --gw 192.168.0.1 \
   --peer 192.168.0.201 --role primary        # no --yes yet: read the plan
@@ -220,7 +220,7 @@ Rather than deleting safety nets on a timer — which fails precisely when you
 need one — report their age and alert on it:
 
 ```bash
-(echo 'MAILTO=""'; crontab -l 2>/dev/null | grep -vE '^MAILTO=|report-snapshots'; echo '0 * * * * /srv/homelab-monitoring/scripts/report-snapshots.sh --target 192.168.0.200 --quiet 2>&1 | logger -t report-snapshots') | crontab -
+(echo 'MAILTO=""'; crontab -l 2>/dev/null | grep -vE '^MAILTO=|report-snapshots'; echo '0 * * * * /home/scripts/monitoring/scripts/report-snapshots.sh --target 192.168.0.200 --quiet 2>&1 | logger -t report-snapshots') | crontab -
 ```
 
 > **Pipe cron output to `logger`, and set `MAILTO=""`.** cron mails *any* output

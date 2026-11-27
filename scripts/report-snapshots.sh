@@ -4,7 +4,7 @@
 # instead of a slow leak in the thin pool.
 #
 # RUN THIS ON THE PROXMOX HOST, from cron:
-#   0 * * * * /srv/homelab-monitoring/scripts/report-snapshots.sh --target 192.168.0.200 --quiet
+#   0 * * * * /home/scripts/monitoring/scripts/report-snapshots.sh --target 192.168.0.200 --quiet
 #
 # Why report rather than auto-delete: a snapshot is a safety net, and deleting
 # safety nets on a timer fails exactly when you need one. --prune exists, but

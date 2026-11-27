@@ -3,7 +3,7 @@
 # this Proxmox node, and pushes it into the local mon LXC.
 #
 # RUN THIS ON THE PROXMOX HOST. Safe to run from cron:
-#   */5 * * * * /srv/homelab-monitoring/scripts/gen-targets.sh --ctid 200 --quiet 2>&1 | logger -t gen-targets
+#   */5 * * * * /home/scripts/monitoring/scripts/gen-targets.sh --ctid 200 --quiet 2>&1 | logger -t gen-targets
 #
 # Only RUNNING guests are listed. A stopped guest is not a failing target -
 # guest-down detection comes from the PVE metrics instead, so the two signals

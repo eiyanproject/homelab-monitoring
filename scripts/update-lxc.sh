@@ -10,10 +10,14 @@
 #      container logs - this restarts Docker in guests that run it
 #
 # RUN THIS ON THE PROXMOX HOST, once per node. Standalone works too - it
-# clones (or reuses) the host checkout at /srv/homelab-monitoring:
+# turns /home/scripts/monitoring into the host checkout (in place: files
+# already there stay) and carries on from there:
 #
+#   mkdir -p /home/scripts/monitoring && cd /home/scripts/monitoring
 #   curl -fsSLO https://raw.githubusercontent.com/eiyanproject/homelab-monitoring/main/scripts/update-lxc.sh
 #   bash update-lxc.sh --yes
+#
+# HM_HOST_DIR=/some/where picks another folder for the checkout.
 #
 # From the checkout:
 #
@@ -27,6 +31,9 @@
 set -euo pipefail
 
 main() {
+# Where this file sits, taken BEFORE the cd below (a relative $0 would
+# resolve against the new directory).
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 CTID=""; ROLE=""; SNAPSHOT="no"; LOGGING="no"; CONFIRM="no"; SELF_PULL="yes"
@@ -43,7 +50,7 @@ while [[ $# -gt 0 ]]; do
     --logging)  LOGGING="yes"; shift ;;
     --yes)      CONFIRM="yes"; shift ;;
     --no-self-pull) SELF_PULL="no"; shift ;;
-    -h|--help)  sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,30p' "$0"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -55,28 +62,52 @@ command -v pct >/dev/null || die "pct not found - run this on the Proxmox host"
 # This script drives the repo's other host scripts, so it needs a checkout.
 # A copy fetched with curl uses (or clones) the host checkout and hands over
 # to the copy in there.
-HOST_DIR="/srv/homelab-monitoring"
+# Every system's host scripts live in a folder named after it, normally
+# /home/scripts/monitoring. A downloaded copy sitting in a folder called
+# "monitoring" makes THAT folder the checkout, wherever it is - so the folder
+# you keep it in is the one that gets used. HM_HOST_DIR overrides both.
+if [[ -n "${HM_HOST_DIR:-}" ]]; then HOST_DIR="$HM_HOST_DIR"
+elif [[ "$(basename "$SCRIPT_DIR")" == monitoring ]]; then HOST_DIR="$SCRIPT_DIR"
+else HOST_DIR="/home/scripts/monitoring"; fi
 REPO="https://github.com/eiyanproject/homelab-monitoring.git"
+BRANCH="main"
 # "Not a git checkout" rather than "no gen-targets.sh next to it": an old
 # copied-in folder of scripts (no .git) has them too, and would run them at
-# whatever version it was copied at, forever.
-if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-  if ! git -C "$HOST_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-    if [[ -e "$HOST_DIR" ]]; then
-      mv "$HOST_DIR" "${HOST_DIR}.pre-git.$(date +%s)"
-      echo "moved the old non-git $HOST_DIR aside"
+# whatever version it was copied at, forever. `-e .git`, not `git rev-parse`:
+# rev-parse also says yes inside any PARENT repository.
+if [[ ! -e "$ROOT/.git" ]]; then
+  if [[ -e "$HOST_DIR/.git" ]]; then
+    # An existing checkout may be months old - older than this script, as the
+    # one on eiyan2 from the first install was. Bring it up to date before
+    # handing over, or the file to hand over to may not exist yet.
+    echo "updating the host checkout $HOST_DIR"
+    if [[ -n "$(git -C "$HOST_DIR" status --porcelain --untracked-files=no)" ]]; then
+      git -C "$HOST_DIR" stash push -q -m "update-lxc $(date +%F_%H%M)"
+      echo "  local edits there were stashed (git -C $HOST_DIR stash list)"
     fi
+    git -C "$HOST_DIR" fetch -q origin "$BRANCH"
+    git -C "$HOST_DIR" checkout -q -f -B "$BRANCH" --track "origin/$BRANCH"
+  else
     command -v git >/dev/null || { apt-get update -qq && apt-get install -y -qq git >/dev/null; }
-    echo "cloning $REPO into $HOST_DIR"
-    git clone -q "$REPO" "$HOST_DIR"
+    # Made into a checkout IN PLACE rather than cloned next to it: the folder
+    # may already hold this very script and other files you put there.
+    # Same-named repo files are overwritten with the current version; anything
+    # else is left alone (git shows it as untracked).
+    echo "making $HOST_DIR a checkout of $REPO ($BRANCH)"
+    mkdir -p "$HOST_DIR"
+    git -C "$HOST_DIR" init -q
+    git -C "$HOST_DIR" remote add origin "$REPO" 2>/dev/null || git -C "$HOST_DIR" remote set-url origin "$REPO"
+    git -C "$HOST_DIR" fetch -q origin "$BRANCH"
+    git -C "$HOST_DIR" checkout -q -f -B "$BRANCH" --track "origin/$BRANCH"
   fi
+  [[ -f "$HOST_DIR/scripts/update-lxc.sh" ]] || die "$HOST_DIR has no scripts/update-lxc.sh after updating it - check git -C $HOST_DIR log"
   exec bash "$HOST_DIR/scripts/update-lxc.sh" "${ORIG_ARGS[@]}"
 fi
 
 # ---- 1. this checkout ------------------------------------------------------
 # Pull first and re-run the new copy, so the host scripts and the container
 # are always the same version.
-if [[ "$CONFIRM" == yes && "$SELF_PULL" == yes ]] && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+if [[ "$CONFIRM" == yes && "$SELF_PULL" == yes && -e "$ROOT/.git" ]]; then
   if [[ -z "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]]; then
     before=$(git -C "$ROOT" rev-parse --short HEAD)
     git -C "$ROOT" pull --ff-only -q || die "could not pull $ROOT"
@@ -143,6 +174,7 @@ cat <<PLAN
   targets       regenerate guests.json now (only guests answering on :9100)
   guest logs    $( [[ "$LOGGING" == yes ]] && echo "re-apply to every running guest -> ${CT_IP}, this host's journal -> ${PEER:-$CT_IP}; Docker switched to journald (restarts Docker in those guests)" || echo "unchanged (pass --logging to re-apply)" )
   timezone      $TZ_HOST (used for ALERT_TIMEZONE if .env has none)
+$( for old in /srv/homelab-monitoring /home/script/scripts /home/script/monitoring /home/scripts/monitoring; do [[ -e "$old" && "$old" != "$ROOT" ]] && echo "  old copy      $old is no longer used once the crons are repointed - delete it when this run is done"; done; true )
 
 PLAN
 

@@ -81,8 +81,8 @@ cannot lose data.
 On each Proxmox host:
 
 ```bash
-git clone https://github.com/eiyanproject/homelab-monitoring.git /srv/homelab-monitoring
-cd /srv/homelab-monitoring/scripts
+git clone https://github.com/eiyanproject/homelab-monitoring.git /home/scripts/monitoring
+cd /home/scripts/monitoring/scripts
 ```
 
 **Node A (primary — runs alerting):**
@@ -114,7 +114,7 @@ The cron line for `gen-targets.sh` (it only lists guests whose `:9100`
 answers, so a guest with no node_exporter is not a permanent `up=0`):
 
 ```
-*/5 * * * * /srv/homelab-monitoring/scripts/gen-targets.sh --ctid 200 --quiet 2>&1 | logger -t gen-targets
+*/5 * * * * /home/scripts/monitoring/scripts/gen-targets.sh --ctid 200 --quiet 2>&1 | logger -t gen-targets
 ```
 
 `--docker-journald` switches Docker in each guest to the journald log driver,
