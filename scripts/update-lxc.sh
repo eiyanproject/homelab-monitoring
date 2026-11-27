@@ -57,7 +57,10 @@ command -v pct >/dev/null || die "pct not found - run this on the Proxmox host"
 # to the copy in there.
 HOST_DIR="/srv/homelab-monitoring"
 REPO="https://github.com/eiyanproject/homelab-monitoring.git"
-if [[ ! -f "$ROOT/scripts/gen-targets.sh" ]]; then
+# "Not a git checkout" rather than "no gen-targets.sh next to it": an old
+# copied-in folder of scripts (no .git) has them too, and would run them at
+# whatever version it was copied at, forever.
+if ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
   if ! git -C "$HOST_DIR" rev-parse --git-dir >/dev/null 2>&1; then
     if [[ -e "$HOST_DIR" ]]; then
       mv "$HOST_DIR" "${HOST_DIR}.pre-git.$(date +%s)"
@@ -117,9 +120,15 @@ CRON_TARGETS="*/5 * * * * ${ROOT}/scripts/gen-targets.sh --ctid ${CTID} --quiet 
 CRON_SNAPS="7 * * * * ${ROOT}/scripts/report-snapshots.sh --target ${CT_IP} --quiet 2>&1 | logger -t report-snapshots"
 CR=$(crontab -l 2>/dev/null || true)
 cron_todo=()
-grep -q 'MAILTO=""' <<<"$CR"       || cron_todo+=('MAILTO=""')
-grep -q 'gen-targets' <<<"$CR"      || cron_todo+=("gen-targets every 5 min")
-grep -q 'report-snapshots' <<<"$CR" || cron_todo+=("report-snapshots hourly")
+grep -q 'MAILTO=""' <<<"$CR" || cron_todo+=('MAILTO=""')
+# A cron line that exists but runs a script from somewhere else (an old
+# copied-in folder) is replaced: it would keep running the old version.
+if ! grep -qF "${ROOT}/scripts/gen-targets.sh" <<<"$CR"; then
+  grep -q 'gen-targets' <<<"$CR" && cron_todo+=("gen-targets (repoint to $ROOT)") || cron_todo+=("gen-targets every 5 min")
+fi
+if ! grep -qF "${ROOT}/scripts/report-snapshots.sh" <<<"$CR"; then
+  grep -q 'report-snapshots' <<<"$CR" && cron_todo+=("report-snapshots (repoint to $ROOT)") || cron_todo+=("report-snapshots hourly")
+fi
 
 cat <<PLAN
 
@@ -149,9 +158,38 @@ if [[ "$SNAPSHOT" == yes ]]; then
 fi
 
 # ---- 3. the stack ----------------------------------------------------------
+# The container's code is brought up to date FROM HERE first, then its own
+# update.sh runs. Otherwise a checkout older than update.sh (mon-eiyan2 sat
+# at 5a025e5) has no update.sh to run, and could never update itself.
+say "Pulling the code in CT $CTID"
+pct exec "$CTID" -- bash -c '
+  set -e
+  cd /srv/monitoring
+  git rev-parse --git-dir >/dev/null 2>&1 || { echo "  /srv/monitoring is not a git checkout - re-run bootstrap-lxc.sh"; exit 1; }
+  # Hand edits to tracked files would block the pull. Stashed, not thrown
+  # away: "git -C /srv/monitoring stash list" shows them, "stash pop" restores.
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "  local edits in tracked files - stashed:"
+    git status --short --untracked-files=no | sed "s/^/    /"
+    git stash push -q -m "update-lxc $(date +%F_%H%M)"
+  fi
+  before=$(git rev-parse --short HEAD)
+  git fetch -q origin
+  # Bootstrap clones with --depth 1; a fast-forward can still fail on a
+  # shallow history, and the tree is clean by now, so reset is safe.
+  git merge -q --ff-only "@{u}" 2>/dev/null || git reset -q --hard "@{u}"
+  after=$(git rev-parse --short HEAD)
+  if [ "$before" = "$after" ]; then
+    echo "  at $after (no new commits)"
+  else
+    echo "  $before -> $after"
+    git --no-pager log --oneline "$before..$after" 2>/dev/null | sed "s/^/    /" | head -20 || true
+  fi
+'
+
 say "Updating the stack in CT $CTID"
 ROLE_ARG=(); [[ -n "$ROLE" ]] && ROLE_ARG=(--role "$ROLE")
-pct exec "$CTID" -- env HM_TIMEZONE="$TZ_HOST" bash /srv/monitoring/scripts/update.sh "${ROLE_ARG[@]}"
+pct exec "$CTID" -- env HM_TIMEZONE="$TZ_HOST" bash /srv/monitoring/scripts/update.sh --no-pull "${ROLE_ARG[@]}"
 
 # ---- 4. host jobs ----------------------------------------------------------
 say "Host jobs"
@@ -159,9 +197,10 @@ chmod +x "$ROOT"/scripts/*.sh
 if [[ ${#cron_todo[@]} -gt 0 ]]; then
   {
     grep -q 'MAILTO=""' <<<"$CR" || echo 'MAILTO=""'
-    [[ -n "$CR" ]] && printf '%s\n' "$CR"
-    grep -q 'gen-targets' <<<"$CR"      || echo "$CRON_TARGETS"
-    grep -q 'report-snapshots' <<<"$CR" || echo "$CRON_SNAPS"
+    # Every other line is kept as it is; ours are replaced, not duplicated.
+    [[ -n "$CR" ]] && grep -vE 'gen-targets|report-snapshots' <<<"$CR" || true
+    echo "$CRON_TARGETS"
+    echo "$CRON_SNAPS"
   } | crontab -
   echo "  crons installed: ${cron_todo[*]}"
 else
