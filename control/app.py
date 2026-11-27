@@ -440,6 +440,9 @@ def do_channels(jid, values):
         env_write(
             {
                 "NTFY_URL": values.get("ntfy", ""),
+                # A self-hosted ntfy set to deny-all (what setup-oci.sh builds)
+                # refuses every post without this, so the form must carry it.
+                "NTFY_TOKEN": values.get("ntfy_token", ""),
                 "DISCORD_WEBHOOK_URL": values.get("discord", ""),
                 "TELEGRAM_BOT_TOKEN": values.get("telegram_token", ""),
                 "TELEGRAM_CHAT_ID": values.get("telegram_chat", ""),
@@ -715,6 +718,7 @@ class Handler(BaseHTTPRequestHandler):
                     "grafana_user": GRAFANA_ADMIN_USER,
                     "channels": {
                         "ntfy": bool(env.get("NTFY_URL")),
+                        "ntfy_token": bool(env.get("NTFY_TOKEN")),
                         "discord": bool(env.get("DISCORD_WEBHOOK_URL")),
                         "telegram": bool(
                             env.get("TELEGRAM_BOT_TOKEN") and env.get("TELEGRAM_CHAT_ID")

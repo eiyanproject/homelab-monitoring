@@ -144,6 +144,11 @@ EXPECTED=${EXPECTED}
 STALE_AFTER=${STALE_AFTER}
 POLL_TARGETS=${POLL_TARGETS}
 POLL_INTERVAL=${POLL_INTERVAL}
+# Also ask the polled VictoriaMetrics whether Grafana's notifications are
+# failing, and say so through this box's own ntfy - a path that does not
+# depend on the one that is broken.
+DELIVERY_CHECK=yes
+DELIVERY_INTERVAL=600
 LISTEN=127.0.0.1:${WD_PORT}
 STATE_FILE=/var/lib/hm-watchdog/state.json
 EOF

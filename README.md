@@ -177,6 +177,33 @@ The control panel runs this for you; by hand it is:
 sh scripts/render-alerting.sh /srv/monitoring && docker restart hm-grafana
 ```
 
+The same script also generates:
+
+- **One message shape** (`hm.title` / `hm.message`) for every channel:
+  `[CRITICAL] <rule>`, each alert's summary, then the rule's runbook.
+- **ntfy in template mode** (`NTFY_TEMPLATE=yes`, ntfy ≥ 2.6). Otherwise ntfy
+  shows Grafana's raw JSON, which is over its 4 KB limit and arrives as an
+  attachment. Criticals go at `urgent` priority and warnings at `default`.
+- **A `warnings` contact point**: Discord if you have one, otherwise ntfy at
+  normal priority. Before this, a node with no Discord sent warnings at
+  critical priority.
+- **A backup-window mute timing** (`ALERT_MUTE_WINDOW`, `ALERT_TIMEZONE`).
+  It mutes warnings only. Criticals are never muted.
+- **Repeat intervals** (`CRITICAL_REPEAT`, `WARNING_REPEAT`), with grouping
+  by `host`, so each guest gets its own notification.
+
+Then prove delivery end to end. The script posts through the same URL and
+token Grafana uses, from inside the Grafana container and from the LXC, and
+prints each channel's HTTP status:
+
+```bash
+sh scripts/test-alert.sh /srv/monitoring
+```
+
+The `alerting-health` rules and the OCI watchdog (`DELIVERY_CHECK`) both
+report failing notifications. The watchdog posts through its own localhost
+ntfy, which does not depend on the path that is broken.
+
 ## Per-node configuration
 
 Three lines in `.env` are all that differ:

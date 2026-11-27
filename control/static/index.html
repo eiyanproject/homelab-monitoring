@@ -166,6 +166,7 @@ a{color:var(--accent-ink)}
     </div>
     <div class="form">
       <input id="ch-ntfy" type="text" autocomplete="off" placeholder="ntfy topic URL">
+      <input id="ch-ntfytoken" type="password" autocomplete="off" placeholder="ntfy publish token (tk_...)">
       <input id="ch-discord" type="text" autocomplete="off" placeholder="Discord webhook URL">
       <input id="ch-tgtoken" type="text" autocomplete="off" placeholder="Telegram bot token">
       <input id="ch-tgchat" type="text" autocomplete="off" placeholder="Telegram chat id">
@@ -432,11 +433,12 @@ $('#btn-gf').addEventListener('click', () => {
 $('#btn-ch').addEventListener('click', () => {
   post('/api/settings/channels', {
     ntfy: $('#ch-ntfy').value.trim(),
+    ntfy_token: $('#ch-ntfytoken').value.trim(),
     discord: $('#ch-discord').value.trim(),
     telegram_token: $('#ch-tgtoken').value.trim(),
     telegram_chat: $('#ch-tgchat').value.trim()
   }, '#prog-ch');
-  ['#ch-ntfy', '#ch-discord', '#ch-tgtoken', '#ch-tgchat'].forEach(i => $(i).value = '');
+  ['#ch-ntfy', '#ch-ntfytoken', '#ch-discord', '#ch-tgtoken', '#ch-tgchat'].forEach(i => $(i).value = '');
 });
 
 async function loadSettings() {

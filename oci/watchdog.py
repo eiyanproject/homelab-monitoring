@@ -17,12 +17,17 @@ Config comes from the environment (see watchdog.env):
     STALE_AFTER     seconds without a beat before alerting (default 300)
     LISTEN          host:port to listen on (default 127.0.0.1:9911)
     STATE_FILE      where last-seen times persist across restarts
+    POLL_TARGETS    name=url,... polled as heartbeats (see below)
+    DELIVERY_CHECK  yes/no (default yes): also ask the polled VictoriaMetrics
+                    whether Grafana's notifications are failing
+    DELIVERY_INTERVAL  seconds between delivery checks (default 600)
 """
 import json
 import os
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -42,6 +47,16 @@ STATE_FILE = os.environ.get("STATE_FILE", "/var/lib/hm-watchdog/state.json")
 # use either or both.
 POLL_TARGETS = os.environ.get("POLL_TARGETS", "")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "60"))
+
+# Delivery check. A deadman tells you a node is gone; it cannot tell you the
+# nodes are fine but every alert they send is failing - which is exactly what
+# happened here (85 of 85 Grafana notifications failed, 2026-11-27, and nobody
+# knew because the failure notice would have gone down the same broken path).
+# This asks the nodes' own VictoriaMetrics, over the poll path that already
+# works, and reports through this box's localhost ntfy: a different path.
+DELIVERY_CHECK = os.environ.get("DELIVERY_CHECK", "yes").strip().lower() in ("1", "yes", "true", "on")
+DELIVERY_INTERVAL = int(os.environ.get("DELIVERY_INTERVAL", "600"))
+DELIVERY_QUERY = "sum by (node) (increase(grafana_alerting_notifications_failed_total[1h]))"
 
 LOCK = threading.Lock()
 STATE = {}          # node -> {"last": epoch, "alerted": bool, "info": {...}}
@@ -204,6 +219,67 @@ def checker():
                 save_state()
 
 
+def query_bases():
+    """scheme://host:port of every poll target - the VictoriaMetrics on each node."""
+    bases = []
+    for url in parse_targets().values():
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme and parts.netloc:
+            bases.append("%s://%s" % (parts.scheme, parts.netloc))
+    return bases
+
+
+def failing_nodes():
+    """{node: failures in the last hour}, or None if no store answered.
+
+    Each store holds every node's metrics, so the first one that answers is
+    enough. None (not {}) when none answer: that is the deadman's job, and
+    reporting it here as well would double every DOWN alert.
+    """
+    qs = urllib.parse.urlencode({"query": DELIVERY_QUERY})
+    for base in query_bases():
+        try:
+            with urllib.request.urlopen(base + "/api/v1/query?" + qs, timeout=15) as resp:
+                data = json.load(resp)
+            result = data.get("data", {}).get("result", [])
+            return {
+                r.get("metric", {}).get("node", "?"): float(r["value"][1])
+                for r in result
+                if float(r["value"][1]) > 0
+            }
+        except (urllib.error.URLError, OSError, TimeoutError, ValueError, KeyError, TypeError):
+            continue
+    return None
+
+
+def delivery_checker():
+    """Alert once when Grafana's notifications start failing, again on recovery."""
+    log("delivery check every %ds: %s" % (DELIVERY_INTERVAL, DELIVERY_QUERY))
+    alerted = False
+    while True:
+        time.sleep(DELIVERY_INTERVAL)
+        failing = failing_nodes()
+        if failing is None:
+            continue
+        if failing and not alerted:
+            alerted = True
+            detail = ", ".join("%s: %d" % (n, v) for n, v in sorted(failing.items()))
+            notify(
+                "Alert delivery failing",
+                "Grafana notifications failed in the last hour (%s).\n"
+                "Alerts from the homelab are not reaching you. On the mon LXC run:\n"
+                "  sh scripts/test-alert.sh /srv/monitoring" % detail,
+                priority="urgent", tags="no_bell",
+            )
+            log("ALERT delivery failing: %s" % detail)
+        elif not failing and alerted:
+            alerted = False
+            notify("Alert delivery recovered",
+                   "No failed Grafana notifications in the last hour.",
+                   priority="default", tags="white_check_mark")
+            log("RECOVERED delivery")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "hm-watchdog"
 
@@ -267,4 +343,6 @@ if __name__ == "__main__":
     threading.Thread(target=checker, daemon=True).start()
     if POLL_TARGETS.strip():
         threading.Thread(target=poller, daemon=True).start()
+        if DELIVERY_CHECK:
+            threading.Thread(target=delivery_checker, daemon=True).start()
     ThreadingHTTPServer((host or "127.0.0.1", int(port)), Handler).serve_forever()
